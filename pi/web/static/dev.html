@@ -179,7 +179,6 @@
       <button onclick="trigger('wind')">Wind (~20 s)</button>
       <button onclick="trigger('storm')">Storm (~30 s)</button>
       <button onclick="trigger('heat')">Heat</button>
-      <button onclick="trigger('power')">Wall power</button>
       <button onclick="trigger('short')">Short press</button>
       <button onclick="trigger('long')">Long press</button>
       <button onclick="trigger('clear')">Clear all</button>
@@ -286,22 +285,7 @@
     // ── System status pills ───────────────────────────────────────────────
 
     function renderStatus(state) {
-      var power  = state.power  || {};
       var health = state.health || {};
-
-      var wallHtml;
-      if (power.wall) {
-        wallHtml = "<span class='pill pill-on'>Wall power ON</span>";
-      } else {
-        var since = "";
-        if (power.outage_since) {
-          var d = new Date(power.outage_since);
-          var hh = d.getHours();
-          var mm = d.getMinutes() < 10 ? "0" + d.getMinutes() : d.getMinutes();
-          since = " · battery since " + hh + ":" + mm;
-        }
-        wallHtml = "<span class='pill pill-off'>Wall power OFF" + since + "</span>";
-      }
 
       var esp32Html = health.esp32_link
         ? "<span class='pill pill-on'>ESP32 connected</span>"
@@ -311,7 +295,7 @@
         ? "<span class='pill pill-info'>Internet reachable</span>"
         : "<span class='pill pill-info'>Internet unreachable</span>";
 
-      document.getElementById("status-row").innerHTML = wallHtml + esp32Html + netHtml;
+      document.getElementById("status-row").innerHTML = esp32Html + netHtml;
     }
 
     function renderAlarms(alarms) {
