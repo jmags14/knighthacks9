@@ -34,3 +34,6 @@ ai/data/guides.json
 ai/data/benchmark_results.json
 ai/data/canned.npy
 ai/data/canned_meta.json
+
+# Voice models (downloaded once with ai/scripts/download_voice_models.py)
+ai/models/

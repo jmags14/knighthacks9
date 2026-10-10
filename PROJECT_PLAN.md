@@ -12,7 +12,6 @@ This is the **single source of truth** for the team (2 EE, 2 CS/AI). If you are 
 
 | | |
 |---|---|
-| **Goal** | Win the main prize, plus the NextEra Energy and Hugging Face sponsor challenges |
 | **Pitch story** | Built for Florida hurricanes first; works for any long outage |
 | **MVP** | One box: ESP32 safety layer + Raspberry Pi AI layer + phone/laptop dashboard, fully offline |
 | **Stretch (in order)** | 1. GPS  2. LoRa radio (box-to-box SOS, needs 2 boxes)  3. Wake word  4. 3D house view |

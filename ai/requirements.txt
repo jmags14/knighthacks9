@@ -1,9 +1,18 @@
 # StormBox AI layer. Plain Python, no agent frameworks.
-ollama>=0.6        # talks to the local Ollama server (LLM + embeddings)
-chromadb>=1.0      # guide index (numpy fallback exists: build_index.py --numpy)
-pyyaml>=6.0        # guide front matter
-numpy>=1.26
-fastapi>=0.110     # used by box-service / the /api/ask route, not by the agent itself
-uvicorn>=0.29      # runs ai/scripts/dev_server.py locally
-httpx>=0.27        # FastAPI's TestClient needs it (tests only)
-pytest>=8.0
+# Versions are pinned to what was tested together (Python 3.14, Windows) so the Pi gets the same ones.
+ollama==0.6.3            # talks to the local Ollama server (LLM + embeddings)
+chromadb==1.5.9          # guide index (numpy fallback exists: build_index.py --numpy)
+pyyaml==6.0.3            # guide front matter
+numpy==2.5.3
+fastapi==0.143.0         # used by box-service / the /api/ask route, not by the agent itself
+uvicorn==0.54.0          # runs ai/scripts/dev_server.py locally
+httpx==0.28.1            # FastAPI's TestClient needs it (tests only)
+pytest==9.1.1
+
+# --- Voice (ai/voice) ---
+faster-whisper==1.2.1    # speech to text
+av==18.1.0               # MUST stay below 19: faster-whisper 1.2.1 breaks with av 19 (metadata_errors)
+ctranslate2==4.8.2       # Whisper's engine (installed by faster-whisper; pinned for the Pi)
+piper-tts==1.8.0         # text to speech
+sounddevice==0.5.6       # laptop mic/speakers (the Pi swaps ai/voice/audio_io.py for arecord/aplay)
+huggingface_hub==2.2.0   # only for ai/scripts/download_voice_models.py (run once, with internet)

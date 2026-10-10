@@ -82,9 +82,46 @@ r = agent.explain_event({"t": "alarm", "id": "flood", "level": "alarm", "state":
 ```
 Events: `{"t":"alarm","id","level","state"}`, `{"t":"phase","phase"}`, `{"t":"power","state":"lost"|...}`.
 
-## 5. Try it without the box
+## 5. Voice entry points (`ai/voice/`)
+
+Fully offline. Two functions, and they are **not** interchangeable:
+
+```python
+from ai.voice import pipeline
+
+# ESP32 BUTTON handler: after you have recorded the question to a 16 kHz mono WAV
+r = pipeline.handle_voice_turn("/tmp/question.wav")
+# -> speech to text -> agent.answer(text, "voice") -> spoken answer.
+# r = {"transcript", "answer", "route", "trace_id", "timings", "wav"}
+# Nothing heard / unclear -> it says "Sorry, I didn't catch that. Please try again." (route "no_speech").
+
+# PROACTIVE alarms / phase changes / power loss (no microphone involved)
+r = pipeline.speak_event({"t": "alarm", "id": "flood", "level": "alarm", "state": "on"})
+# -> agent.explain_event(event) -> speaks the answer. answer == "" means nothing was said.
+# Replay events (event["source"] == "replay") are spoken with the "Replay:" prefix, so the demo stays honest.
+```
+
+Both block until the speech has finished playing, so call them from a worker thread, not your
+main loop. **One voice at a time:** if `speak_event` is called while an answer is playing, the
+answer is cut off and the alarm is spoken; two alarms take turns. This is handled inside the
+pipeline, so just call the functions from whichever thread you like.
+
+**What you replace on the Pi:** only `ai/voice/audio_io.py`. It has three small functions:
+`record_until_enter()` (return a WAV path), `play_wav(path)` (block until done) and
+`stop_playback()` (cut the sound short; with `aplay`, kill the process). Keep the names and
+behavior and the rest of the pipeline works unchanged.
+
+**Settings** are in `ai/voice/config.py`: STT model name, Piper voice name, max record seconds.
+For a faster Pi voice set `PIPER_VOICE = "en_US-lessac-low"`, then run
+`python ai/scripts/download_voice_models.py` once (needs internet), and copy `ai/models/` to the Pi
+(it is git-ignored). At runtime nothing touches the network.
+
+**Pinned versions:** use `ai/requirements.txt` as is. `av` must stay below 19 or faster-whisper crashes.
+
+## 6. Try it without the box
 
 ```powershell
-python -m uvicorn ai.scripts.dev_server:app --port 8000
+python -m uvicorn ai.scripts.dev_server:app --port 8000      # the HTTP API
+python ai/scripts/push_to_talk.py                            # the voice pipeline, laptop mic/speakers
 ```
-This is a local-only app with a fake box state; do not ship it.
+Both use a fake box state and are local-only; do not ship them.
