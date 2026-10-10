@@ -25,5 +25,5 @@ def transcribe(wav_path):
     """WAV file -> text ('' if nobody spoke)."""
     segments, _info = _load().transcribe(
         str(wav_path), language="en", beam_size=config.STT_BEAM_SIZE,
-        vad_filter=True)                    # vad_filter skips silence, so quiet clips give no hallucinated text
+        vad_filter=True, initial_prompt=config.STT_HINT)                # vad_filter skips silence, so quiet clips give no hallucinated text
     return " ".join(s.text.strip() for s in segments).strip()

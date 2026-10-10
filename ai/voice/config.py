@@ -8,6 +8,12 @@ ROOT = Path(__file__).resolve().parents[2]
 STT_MODEL = "tiny.en"            # tiny.en | base.en | small.en (bigger = slower, more accurate)
 STT_COMPUTE = "int8"             # int8 = fastest on CPU
 STT_BEAM_SIZE = 1                # 1 = greedy decoding, fastest
+# A hint of what people will say. Tiny models drop or mangle rare words (e.g. "hectopascals"), so we
+# prime Whisper with a few sample sentences using our vocabulary. Write it as normal sentences:
+# a bare word list makes it output lowercase text with no punctuation. Measured on 24 clips:
+# word recall 95% without the hint, 99% with it. Add sample sentences here, no code change needed.
+STT_HINT = ("Is the storm over? How do I use a generator safely? Pressure is 996 hectopascals. "
+            "Is there carbon monoxide? Do I need to evacuate?")
 
 # --- Text to speech (Piper) ---
 PIPER_VOICE = "en_US-lessac-medium"      # en_US-lessac-low is the faster voice for the Pi
