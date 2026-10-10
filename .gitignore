@@ -23,3 +23,7 @@ build/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Data / database
+data/*.db
+data/chroma/

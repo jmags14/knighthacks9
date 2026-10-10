@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StormBox Dev</title>
+  <style>
+    :root {
+      --bg:       #111;
+      --surface:  #1e1e1e;
+      --text:     #e8e8e8;
+      --muted:    #888;
+      --green:    #4caf50;
+      --red:      #f44336;
+      --amber:    #ff9800;
+      --blue:     #2196f3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-monospace, "Cascadia Code", monospace;
+      padding: 1.25rem;
+      max-width: 900px;
+    }
+
+    h1 { font-size: 1.4rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+    h2 { font-size: 1rem; margin: 1rem 0 0.5rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+    .dot { font-size: 0.9rem; }
+    .dot.ok   { color: var(--green); }
+    .dot.err  { color: var(--red);   }
+
+    /* Status card */
+    #card {
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+    }
+    #card-title  { font-size: 1.8rem; font-weight: 700; }
+    #card-action { color: var(--muted); margin-top: 0.25rem; font-size: 1rem; }
+
+    /* Dev controls */
+    #dev-panel { display: none; }
+
+    .btn-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
+
+    button {
+      padding: 0.4rem 0.85rem;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.85rem;
+    }
+    button:hover { background: #2a2a2a; }
+
+    .btn-ack {
+      background: var(--red);
+      color: #fff;
+      border-color: var(--red);
+    }
+    .btn-ack:hover { background: #c62828; }
+
+    /* JSON dump */
+    pre {
+      background: var(--surface);
+      border-radius: 6px;
+      padding: 1rem;
+      overflow-x: auto;
+      font-size: 0.8rem;
+      max-height: 55vh;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>
+    StormBox
+    <span class="dot err" id="ws-dot" title="WebSocket">●</span>
+  </h1>
+
+  <div id="card">
+    <div id="card-title">—</div>
+    <div id="card-action"></div>
+  </div>
+
+  <!-- Dev controls: only shown when state.dev === true -->
+  <div id="dev-panel">
+    <h2>Dev triggers</h2>
+    <div class="btn-row">
+      <button onclick="trigger('flood')">Flood</button>
+      <button onclick="trigger('wind')">Wind (~20 s)</button>
+      <button onclick="trigger('storm')">Storm (~30 s)</button>
+      <button onclick="trigger('heat')">Heat</button>
+      <button onclick="trigger('power')">Wall power</button>
+      <button onclick="trigger('short')">Short press</button>
+      <button onclick="trigger('long')">Long press</button>
+      <button onclick="trigger('clear')">Clear all</button>
+    </div>
+
+    <h2>Active alarms</h2>
+    <div class="btn-row" id="alarm-acks">
+      <span style="color:var(--muted)">none</span>
+    </div>
+  </div>
+
+  <h2>Live state</h2>
+  <pre id="state-json">connecting…</pre>
+
+  <script>
+    let ws;
+
+    function connect() {
+      ws = new WebSocket("ws://" + location.host + "/ws");
+
+      ws.onopen = function() {
+        document.getElementById("ws-dot").className = "dot ok";
+      };
+
+      ws.onclose = function() {
+        document.getElementById("ws-dot").className = "dot err";
+        setTimeout(connect, 2000);   // auto-reconnect
+      };
+
+      ws.onmessage = function(evt) {
+        const state = JSON.parse(evt.data);
+        render(state);
+      };
+    }
+
+    function render(state) {
+      // Status card
+      document.getElementById("card-title").textContent =
+        (state.status_card && state.status_card.title) || "—";
+      document.getElementById("card-action").textContent =
+        (state.status_card && state.status_card.action) || "";
+
+      // Dev panel
+      if (state.dev) {
+        document.getElementById("dev-panel").style.display = "block";
+        renderAlarms(state.alarms || []);
+      }
+
+      // Raw state dump
+      document.getElementById("state-json").textContent =
+        JSON.stringify(state, null, 2);
+    }
+
+    function renderAlarms(alarms) {
+      const active = alarms.filter(function(a) { return !a.acked; });
+      const row = document.getElementById("alarm-acks");
+      if (!active.length) {
+        row.innerHTML = '<span style="color:var(--muted)">none</span>';
+        return;
+      }
+      row.innerHTML = active.map(function(a) {
+        return '<button class="btn-ack" onclick="ack(\'' + a.id + '\')">Ack: ' + a.id + '</button>';
+      }).join("");
+    }
+
+    async function trigger(event) {
+      try {
+        const res = await fetch("/api/dev/trigger", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event: event }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          console.error("trigger error:", err);
+        }
+      } catch (e) {
+        console.error("trigger fetch failed:", e);
+      }
+    }
+
+    async function ack(id) {
+      try {
+        await fetch("/api/alarms/ack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: id }),
+        });
+      } catch (e) {
+        console.error("ack fetch failed:", e);
+      }
+    }
+
+    connect();
+  </script>
+</body>
+</html>
