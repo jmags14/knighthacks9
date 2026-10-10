@@ -82,6 +82,27 @@
       line-height: 1.4;
     }
 
+    /* ── Suggested questions ── */
+    #suggestions {
+      flex-shrink: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem 0.75rem;
+    }
+    .suggestion-chip {
+      background: transparent;
+      border: 1.5px solid #333;
+      border-radius: 999px;
+      color: var(--text);
+      font-size: 0.85rem;
+      padding: 0.45rem 0.9rem;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      line-height: 1.3;
+    }
+    .suggestion-chip:active { background: var(--surface); }
+
     /* ── Input bar (sits above fixed nav) ── */
     .input-bar {
       flex-shrink: 0;
@@ -159,6 +180,13 @@
 
   <div id="messages"></div>
 
+  <div id="suggestions">
+    <button class="suggestion-chip">Is the storm over?</button>
+    <button class="suggestion-chip">What do I do if water comes in?</button>
+    <button class="suggestion-chip">How much water do we need?</button>
+    <button class="suggestion-chip">How long will the battery last?</button>
+  </div>
+
   <div class="input-bar">
     <div class="input-row">
       <input type="text" id="ask-input" placeholder="Ask the box anything…" autocomplete="off" />
@@ -187,9 +215,10 @@
 
   <script src="js/state.js"></script>
   <script>
-    var input    = document.getElementById("ask-input");
-    var sendBtn  = document.getElementById("send-btn");
-    var messages = document.getElementById("messages");
+    var input       = document.getElementById("ask-input");
+    var sendBtn     = document.getElementById("send-btn");
+    var messages    = document.getElementById("messages");
+    var suggestions = document.getElementById("suggestions");
 
     function scrollBottom() {
       messages.scrollTop = messages.scrollHeight;
@@ -251,6 +280,7 @@
       input.value = "";
 
       addUserBubble(text);
+      suggestions.style.display = "none";
       var thinkingWrap = addBotBubble("Thinking…", [], true);
 
       input.disabled  = true;
@@ -287,6 +317,16 @@
           input.focus();
         });
     }
+
+    Array.prototype.forEach.call(
+      suggestions.querySelectorAll(".suggestion-chip"),
+      function(chip) {
+        chip.addEventListener("click", function() {
+          input.value = chip.textContent;
+          send();
+        });
+      }
+    );
 
     input.addEventListener("keydown", function(e) {
       if (e.key === "Enter") send();

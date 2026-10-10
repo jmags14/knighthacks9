@@ -105,25 +105,64 @@ async def check_internet() -> bool:
 class SerialSource:
     """
     Wraps a pyserial port as an async line source.
-    Uses run_in_executor so the blocking readline doesn't stall asyncio.
+    The port is opened lazily on the first readline() call and re-opened
+    automatically after a disconnect (caller sees an exception and retries).
+    Uses run_in_executor so blocking calls don't stall asyncio.
     """
 
     def __init__(self, port: str, baudrate: int = 115200):
-        import serial
-        self._ser = serial.Serial(port, baudrate, timeout=1)
+        self._port     = port
+        self._baudrate = baudrate
+        self._ser      = None   # opened on first use
 
-    async def readline(self) -> str:
-        loop = asyncio.get_event_loop()
+    def _open_sync(self):
+        """Open (or reopen) the port. Raises serial.SerialException on failure."""
+        import serial
+        if self._ser:
+            try:
+                self._ser.close()
+            except Exception:
+                pass
+        self._ser = serial.Serial(self._port, self._baudrate, timeout=1)
+
+    def _readline_sync(self) -> str:
+        """Read one non-empty line. Raises on port error."""
         while True:
-            raw = await loop.run_in_executor(None, self._ser.readline)
+            raw = self._ser.readline()
             line = raw.decode(errors="replace").strip()
             if line:
                 return line
-            # readline timed out (empty bytes) — try again
+
+    async def readline(self) -> str:
+        loop = asyncio.get_event_loop()
+        if self._ser is None:
+            await loop.run_in_executor(None, self._open_sync)
+        try:
+            return await loop.run_in_executor(None, self._readline_sync)
+        except Exception:
+            try:
+                self._ser.close()
+            except Exception:
+                pass
+            self._ser = None
+            raise
 
     async def write(self, data: bytes):
+        if self._ser is None:
+            return   # port not open; drop the write silently
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, self._ser.write, data + b"\n")
+        try:
+            await loop.run_in_executor(None, self._ser.write, data + b"\n")
+        except Exception as exc:
+            print(f"[service] serial write error: {exc}")
+
+    def close(self):
+        if self._ser:
+            try:
+                self._ser.close()
+            except Exception:
+                pass
+            self._ser = None
 
 
 # ------------------------------------------------------------------ box service
@@ -183,6 +222,7 @@ class BoxService:
                 await self._notify()
             except Exception as exc:
                 print(f"[service] read error: {exc}")
+                await asyncio.sleep(2)
 
     def _handle_line(self, raw: str):
         """Parse one §5 JSON line and apply it to BoxState. Ignore malformed lines."""

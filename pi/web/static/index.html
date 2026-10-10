@@ -361,10 +361,13 @@
       var humStr  = r.hum  != null ? r.hum.toFixed(1) + "%" : "—";
       var presStr = r.p_sl != null ? r.p_sl.toFixed(1) : "—";
 
-      var floodActive = (_lastAlarms || []).some(function (a) { return a.id === "flood" && !a.acked; });
-      var floorHtml   = floodActive
-        ? "<span class='floor-wet'>Wet</span>"
-        : "<span class='floor-dry'>Dry</span>";
+      var esp32Up     = !!(state.health && state.health.esp32_link);
+      var floodActive = esp32Up && (_lastAlarms || []).some(function (a) { return a.id === "flood" && !a.acked; });
+      var floorHtml   = !esp32Up
+        ? "—"
+        : (floodActive
+            ? "<span class='floor-wet'>Wet</span>"
+            : "<span class='floor-dry'>Dry</span>");
 
       function tile(label, valueHtml, alarmId) {
         return "<div class='reading-tile" + (alarmId ? tileBorderClass(alarmId) : "") + "'>"
@@ -500,30 +503,41 @@
       statusLabel.textContent = "● Connected to box";
       _lastAlarms             = state.alarms || [];
 
-      var active = sortedActive(_lastAlarms);
-      var top    = topAlarm(_lastAlarms);
+      var esp32Up = !!(state.health && state.health.esp32_link);
+      var active  = sortedActive(_lastAlarms);
+      var top     = topAlarm(_lastAlarms);
+      var noAlarm = _lastAlarms.length === 0;
 
-      // If any alarm exists (acked or not), derive card text from the top alarm
-      // so "All clear" never shows while alarms are still present
-      var ct = top ? (CARD_TEXT[top.id + ":" + top.level] || {}) : {};
-      cardTitle.textContent  = ct.title  || (state.status_card && state.status_card.title)  || "All clear";
-      cardAction.textContent = ct.action || (state.status_card && state.status_card.action) || "";
+      if (!esp32Up) {
+        // ESP32 offline — grey card, no alarm controls
+        card.className             = "card off" + (noAlarm ? " no-alarm" : "");
+        cardTitle.textContent      = "Sensors offline";
+        cardAction.textContent     = "Check that the box is plugged in";
+        cardSilenced.style.display = "none";
+        silenceBtn.style.display   = "none";
+        explanationStrip.style.display = "none";
+      } else {
+        // If any alarm exists (acked or not), derive card text from the top alarm
+        // so "All clear" never shows while alarms are still present
+        var ct = top ? (CARD_TEXT[top.id + ":" + top.level] || {}) : {};
+        cardTitle.textContent  = ct.title  || (state.status_card && state.status_card.title)  || "All clear";
+        cardAction.textContent = ct.action || (state.status_card && state.status_card.action) || "";
 
-      // Card color: all alarms (acked or not) set the color; pulse only while un-silenced alarms exist
-      var sevClass = !top ? "clear" : (top.level === "alarm" ? "alarm" : "warn");
-      var noAlarm  = _lastAlarms.length === 0;
-      card.className = "card " + sevClass + (active.length ? " pulsing" : "") + (noAlarm ? " no-alarm" : "");
+        // Card color: all alarms (acked or not) set the color; pulse only while un-silenced alarms exist
+        var sevClass = !top ? "clear" : (top.level === "alarm" ? "alarm" : "warn");
+        card.className = "card " + sevClass + (active.length ? " pulsing" : "") + (noAlarm ? " no-alarm" : "");
 
-      // "Alarm silenced" — show when the top alarm (by priority) is acked
-      cardSilenced.style.display = (top && top.acked) ? "block" : "none";
+        // "Alarm silenced" — show when the top alarm (by priority) is acked
+        cardSilenced.style.display = (top && top.acked) ? "block" : "none";
 
-      // Silence button
-      silenceBtn.style.display = active.length ? "block" : "none";
+        // Silence button
+        silenceBtn.style.display = active.length ? "block" : "none";
 
-      // Explanation strip — show top alarm's explanation text if present
-      var expText = top && top.explanation ? top.explanation : "";
-      explanationStrip.style.display = expText ? "block" : "none";
-      explanationStrip.textContent   = expText;
+        // Explanation strip — show top alarm's explanation text if present
+        var expText = top && top.explanation ? top.explanation : "";
+        explanationStrip.style.display = expText ? "block" : "none";
+        explanationStrip.textContent   = expText;
+      }
 
       renderReadings(state);
       renderPowerRow(state);
