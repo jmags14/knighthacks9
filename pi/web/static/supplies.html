@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StormBox — Supplies</title>
+  <style>
+    :root {
+      --bg:      #111;
+      --surface: #1e1e1e;
+      --text:    #f0f0f0;
+      --muted:   #777;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 0 1rem 5rem;
+      min-height: 100dvh;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 1rem 0 0.75rem;
+      flex-shrink: 0;
+    }
+    .topbar-title { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.02em; flex: 1; }
+    .status-label { font-size: 0.72rem; font-weight: 500; white-space: nowrap; transition: color 0.3s; }
+    .status-label.ok  { color: #4caf50; }
+    .status-label.err { color: #f44336; }
+
+    .coming-soon {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      padding-bottom: 2rem;
+    }
+    .coming-icon svg { width: 52px; height: 52px; color: var(--muted); }
+    .coming-title { font-size: 1.5rem; font-weight: 700; }
+    .coming-sub   { font-size: 0.9rem; color: var(--muted); }
+
+    .nav-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: #1a1a1a;
+      border-top: 1px solid #2a2a2a;
+      display: flex;
+      padding-bottom: env(safe-area-inset-bottom);
+      z-index: 100;
+    }
+    .nav-tab {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.2rem;
+      padding: 0.6rem 0;
+      min-height: 56px;
+      text-decoration: none;
+      color: #666;
+      font-size: 0.68rem;
+      font-weight: 500;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nav-tab svg    { width: 22px; height: 22px; }
+    .nav-tab.active { color: #fff; }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <span class="topbar-title">StormBox</span>
+    <span class="status-label err" id="status-label">● Reconnecting to box...</span>
+  </div>
+
+  <div class="coming-soon">
+    <div class="coming-icon">
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="9" width="16" height="10" rx="1"/>
+        <path d="M8 9V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/>
+        <line x1="3" y1="13" x2="19" y2="13"/>
+      </svg>
+    </div>
+    <div class="coming-title">Supplies</div>
+    <div class="coming-sub">Coming soon</div>
+  </div>
+
+  <nav class="nav-bar">
+    <a href="index.html" class="nav-tab">
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10L11 3l8 7"/><path d="M5 8.7V19h4v-5h4v5h4V8.7"/></svg>
+      <span>Home</span>
+    </a>
+    <a href="ask.html" class="nav-tab">
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H8l-4 3V5a1 1 0 0 1 1-1z"/></svg>
+      <span>Ask</span>
+    </a>
+    <a href="supplies.html" class="nav-tab active">
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="16" height="10" rx="1"/><path d="M8 9V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><line x1="3" y1="13" x2="19" y2="13"/></svg>
+      <span>Supplies</span>
+    </a>
+    <a href="guides.html" class="nav-tab">
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3h5a3 3 0 0 1 2 1 3 3 0 0 1 2-1h5v14h-5a3 3 0 0 0-2 1 3 3 0 0 0-2-1H4V3z"/><line x1="11" y1="4" x2="11" y2="17"/></svg>
+      <span>Guides</span>
+    </a>
+  </nav>
+
+  <script src="js/state.js"></script>
+  <script>
+    connectState(function (state) {
+      var el = document.getElementById("status-label");
+      if (state._connected) {
+        el.className   = "status-label ok";
+        el.textContent = "● Connected to box";
+      } else {
+        el.className   = "status-label err";
+        el.textContent = "● Reconnecting to box...";
+      }
+    });
+  </script>
+
+</body>
+</html>

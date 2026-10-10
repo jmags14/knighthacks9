@@ -31,7 +31,7 @@
       flex-direction: column;
       max-width: 480px;
       margin: 0 auto;
-      padding: 0 1rem;
+      padding: 0 1rem 5rem;
       min-height: 100dvh;
     }
 
@@ -51,25 +51,14 @@
       flex: 1;
     }
 
-    .badge {
-      font-size: 0.68rem;
+    .status-label {
+      font-size: 0.72rem;
       font-weight: 500;
-      background: #2a2a2a;
-      color: var(--muted);
-      padding: 0.2rem 0.55rem;
-      border-radius: 999px;
       white-space: nowrap;
+      transition: color 0.3s;
     }
-
-    .dot {
-      width: 11px;
-      height: 11px;
-      border-radius: 50%;
-      flex-shrink: 0;
-      transition: background 0.3s;
-    }
-    .dot.ok  { background: #4caf50; }
-    .dot.err { background: #f44336; }
+    .status-label.ok  { color: #4caf50; }
+    .status-label.err { color: #f44336; }
 
     /* ── Status card ── */
     .card {
@@ -217,14 +206,41 @@
     .info-row + .info-row { border-top: 1px solid #222; }
     .info-row.amber { color: #ff9800; }
     .info-row.muted { color: var(--muted); }
+
+    /* ── Bottom nav bar ── */
+    .nav-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: #1a1a1a;
+      border-top: 1px solid #2a2a2a;
+      display: flex;
+      padding-bottom: env(safe-area-inset-bottom);
+      z-index: 100;
+    }
+    .nav-tab {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.2rem;
+      padding: 0.6rem 0;
+      min-height: 56px;
+      text-decoration: none;
+      color: #666;
+      font-size: 0.68rem;
+      font-weight: 500;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nav-tab svg    { width: 22px; height: 22px; }
+    .nav-tab.active { color: #fff; }
   </style>
 </head>
 <body>
 
   <div class="topbar">
     <span class="topbar-title">StormBox</span>
-    <span class="badge">Works offline</span>
-    <span class="dot err" id="dot"></span>
+    <span class="status-label err" id="status-label">● Reconnecting to box...</span>
   </div>
 
   <div class="card off" id="card">
@@ -241,13 +257,32 @@
     <div class="info-row" id="storm-row"></div>
   </div>
 
+  <nav class="nav-bar">
+    <a href="index.html" class="nav-tab active">
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10L11 3l8 7"/><path d="M5 8.7V19h4v-5h4v5h4V8.7"/></svg>
+      <span>Home</span>
+    </a>
+    <a href="ask.html" class="nav-tab">
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H8l-4 3V5a1 1 0 0 1 1-1z"/></svg>
+      <span>Ask</span>
+    </a>
+    <a href="supplies.html" class="nav-tab">
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="16" height="10" rx="1"/><path d="M8 9V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><line x1="3" y1="13" x2="19" y2="13"/></svg>
+      <span>Supplies</span>
+    </a>
+    <a href="guides.html" class="nav-tab">
+      <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3h5a3 3 0 0 1 2 1 3 3 0 0 1 2-1h5v14h-5a3 3 0 0 0-2 1 3 3 0 0 0-2-1H4V3z"/><line x1="11" y1="4" x2="11" y2="17"/></svg>
+      <span>Guides</span>
+    </a>
+  </nav>
+
   <script src="js/state.js"></script>
   <script>
     var card         = document.getElementById("card");
     var cardTitle    = document.getElementById("card-title");
     var cardAction   = document.getElementById("card-action");
     var cardSilenced = document.getElementById("card-silenced");
-    var dot          = document.getElementById("dot");
+    var statusLabel  = document.getElementById("status-label");
     var silenceBtn   = document.getElementById("silence-btn");
     var alarmTags    = document.getElementById("alarm-tags");
     var readingsGrid = document.getElementById("readings-grid");
@@ -434,8 +469,9 @@
 
     connectState(function (state) {
       if (!state._connected) {
-        dot.className          = "dot err";
-        card.className         = "card off";
+        statusLabel.className   = "status-label err";
+        statusLabel.textContent = "● Reconnecting to box...";
+        card.className          = "card off";
         cardTitle.textContent  = "Reconnecting…";
         cardAction.textContent = "";
         silenceBtn.style.display = "none";
@@ -446,8 +482,9 @@
         return;
       }
 
-      dot.className = "dot ok";
-      _lastAlarms   = state.alarms || [];
+      statusLabel.className   = "status-label ok";
+      statusLabel.textContent = "● Connected to box";
+      _lastAlarms             = state.alarms || [];
 
       var active = sortedActive(_lastAlarms);
       var top    = topAlarm(_lastAlarms);
