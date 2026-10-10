@@ -98,6 +98,31 @@ r = agent.explain_event({"t": "alarm", "id": "flood", "level": "alarm", "state":
 ```
 Events: `{"t":"alarm","id","level","state"}`, `{"t":"phase","phase"}`, `{"t":"power","state":"lost"|...}`.
 
+### Heat index ("feels like")
+
+The box measures temperature and humidity **inside** the house, so the agent now also says what the
+heat feels like (NWS heat index). Nothing to wire for the voice: it is automatic.
+- **Heat alarm text** (`{"t":"alarm","id":"heat",...}`) now includes the number and category when the
+  box state has `temp_c` and `humidity`: "It's dangerously hot inside. It feels like 104 degrees, danger level. Drink
+  water, ...". The LCD lines are unchanged. Pass the current state (the agent does this itself).
+- **Sensor answers** ("What's the temperature?", "How hot is it?", "What's the heat index?") add
+  "It feels like 95 degrees, extreme caution level." when the heat index is 80 F or more, and nothing below that.
+- **Alarms still come only from the ESP32.** The agent never raises a heat alarm.
+
+**For the Home screen**, call the helper with the box readings:
+```python
+from ai.agent.heat import heat_info
+info = heat_info(temp_c=31.1, humidity=60)      # humidity may be None
+# {"temp_f": 88, "heat_index_f": 95, "category": "Extreme Caution",
+#  "humidity_measured": True, "feels_like": True,
+#  "label": "Feels like 95°F · Extreme Caution"}
+```
+- Show `info["label"]` as is. It is `None` below 80 F (the heat index is just the temperature then), so
+  hide the line. `heat_info` returns `None` when `temp_c` is `None` (sensors offline).
+- `category` is `"none"`, `"Caution"`, `"Extreme Caution"`, `"Danger"` or `"Extreme Danger"` (use it for
+  the color). If `humidity_measured` is `False`, the number is the temperature alone: show
+  "humidity not measured".
+
 ## 5. Voice entry points (`ai/voice/`)
 
 Fully offline. Two functions, and they are **not** interchangeable:
