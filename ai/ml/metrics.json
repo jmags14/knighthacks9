@@ -1,0 +1,444 @@
+{
+ "results_test": {
+  "logreg": {
+   "threshold": 0.65,
+   "false_alarms_per_week_val": 0.97,
+   "false_alarms_per_week_test": 1.69,
+   "event_recall_pct": 100.0,
+   "events": 31,
+   "median_lead_h": 24.0,
+   "mean_lead_h": 20.5,
+   "hour_recall_pct": 96.5,
+   "hour_precision_pct": 3.3
+  },
+  "tree": {
+   "threshold": 0.71,
+   "false_alarms_per_week_val": 0.1,
+   "false_alarms_per_week_test": 0.35,
+   "event_recall_pct": 96.8,
+   "events": 31,
+   "median_lead_h": 20.5,
+   "mean_lead_h": 17.3,
+   "hour_recall_pct": 86.1,
+   "hour_precision_pct": 5.5
+  }
+ },
+ "winner": "tree",
+ "rule": "lowest threshold with <= 1 false alarm/week on validation years; tree wins if within 5 recall points",
+ "train_years": [
+  2005,
+  2018
+ ],
+ "val_years": [
+  2019,
+  2021
+ ],
+ "test_years": [
+  2022,
+  2025
+ ],
+ "stations": [
+  "41009",
+  "41010",
+  "42003",
+  "42013",
+  "42022",
+  "42023",
+  "42036",
+  "42039",
+  "apcf1",
+  "cdrf1",
+  "cwbf1",
+  "fwyf1",
+  "kywf1",
+  "lkwf1",
+  "mlrf1",
+  "npsf1",
+  "pacf1",
+  "sauf1",
+  "smkf1",
+  "vcaf1",
+  "venf1"
+ ],
+ "radius_km": 150,
+ "horizon_h": 12,
+ "test_events": [
+  {
+   "station": "42036",
+   "sid": "AL042024",
+   "name": "DEBBY",
+   "year": 2024,
+   "t_closest": "2024-08-05 01:00:00+00:00",
+   "min_dist_km": 43.5
+  },
+  {
+   "station": "42036",
+   "sid": "AL092024",
+   "name": "HELENE",
+   "year": 2024,
+   "t_closest": "2024-09-26 23:00:00+00:00",
+   "min_dist_km": 18.8
+  },
+  {
+   "station": "42036",
+   "sid": "AL102023",
+   "name": "IDALIA",
+   "year": 2023,
+   "t_closest": "2023-08-30 07:00:00+00:00",
+   "min_dist_km": 15.4
+  },
+  {
+   "station": "42003",
+   "sid": "AL022023",
+   "name": "ARLENE",
+   "year": 2023,
+   "t_closest": "2023-06-03 00:00:00+00:00",
+   "min_dist_km": 8.8
+  },
+  {
+   "station": "42003",
+   "sid": "AL042024",
+   "name": "DEBBY",
+   "year": 2024,
+   "t_closest": "2024-08-04 12:00:00+00:00",
+   "min_dist_km": 135.0
+  },
+  {
+   "station": "42003",
+   "sid": "AL092024",
+   "name": "HELENE",
+   "year": 2024,
+   "t_closest": "2024-09-26 16:00:00+00:00",
+   "min_dist_km": 35.2
+  },
+  {
+   "station": "42003",
+   "sid": "AL102023",
+   "name": "IDALIA",
+   "year": 2023,
+   "t_closest": "2023-08-29 20:00:00+00:00",
+   "min_dist_km": 85.6
+  },
+  {
+   "station": "42003",
+   "sid": "AL142024",
+   "name": "MILTON",
+   "year": 2024,
+   "t_closest": "2024-10-09 14:00:00+00:00",
+   "min_dist_km": 121.5
+  },
+  {
+   "station": "42003",
+   "sid": "AL182024",
+   "name": "RAFAEL",
+   "year": 2024,
+   "t_closest": "2024-11-07 18:00:00+00:00",
+   "min_dist_km": 147.6
+  },
+  {
+   "station": "42013",
+   "sid": "AL042024",
+   "name": "DEBBY",
+   "year": 2024,
+   "t_closest": "2024-08-04 17:00:00+00:00",
+   "min_dist_km": 136.3
+  },
+  {
+   "station": "42013",
+   "sid": "AL092022",
+   "name": "IAN",
+   "year": 2022,
+   "t_closest": "2022-09-28 18:00:00+00:00",
+   "min_dist_km": 82.2
+  },
+  {
+   "station": "42013",
+   "sid": "AL142024",
+   "name": "MILTON",
+   "year": 2024,
+   "t_closest": "2024-10-09 23:00:00+00:00",
+   "min_dist_km": 4.5
+  },
+  {
+   "station": "42022",
+   "sid": "AL042024",
+   "name": "DEBBY",
+   "year": 2024,
+   "t_closest": "2024-08-04 20:00:00+00:00",
+   "min_dist_km": 50.6
+  },
+  {
+   "station": "42022",
+   "sid": "AL092024",
+   "name": "HELENE",
+   "year": 2024,
+   "t_closest": "2024-09-26 21:00:00+00:00",
+   "min_dist_km": 91.0
+  },
+  {
+   "station": "42022",
+   "sid": "AL102023",
+   "name": "IDALIA",
+   "year": 2023,
+   "t_closest": "2023-08-30 03:00:00+00:00",
+   "min_dist_km": 85.3
+  },
+  {
+   "station": "42022",
+   "sid": "AL142024",
+   "name": "MILTON",
+   "year": 2024,
+   "t_closest": "2024-10-09 22:00:00+00:00",
+   "min_dist_km": 84.8
+  },
+  {
+   "station": "42023",
+   "sid": "AL042024",
+   "name": "DEBBY",
+   "year": 2024,
+   "t_closest": "2024-08-04 09:00:00+00:00",
+   "min_dist_km": 106.7
+  },
+  {
+   "station": "42023",
+   "sid": "AL092022",
+   "name": "IAN",
+   "year": 2022,
+   "t_closest": "2022-09-28 12:00:00+00:00",
+   "min_dist_km": 38.6
+  },
+  {
+   "station": "42023",
+   "sid": "AL142024",
+   "name": "MILTON",
+   "year": 2024,
+   "t_closest": "2024-10-09 20:00:00+00:00",
+   "min_dist_km": 84.3
+  },
+  {
+   "station": "41009",
+   "sid": "AL012022",
+   "name": "ALEX",
+   "year": 2022,
+   "t_closest": "2022-06-05 00:00:00+00:00",
+   "min_dist_km": 146.9
+  },
+  {
+   "station": "41009",
+   "sid": "AL092022",
+   "name": "IAN",
+   "year": 2022,
+   "t_closest": "2022-09-29 15:00:00+00:00",
+   "min_dist_km": 22.6
+  },
+  {
+   "station": "41009",
+   "sid": "AL142024",
+   "name": "MILTON",
+   "year": 2024,
+   "t_closest": "2024-10-10 09:00:00+00:00",
+   "min_dist_km": 21.5
+  },
+  {
+   "station": "41009",
+   "sid": "AL172022",
+   "name": "NICOLE",
+   "year": 2022,
+   "t_closest": "2022-11-10 08:00:00+00:00",
+   "min_dist_km": 100.1
+  },
+  {
+   "station": "41010",
+   "sid": "AL012022",
+   "name": "ALEX",
+   "year": 2022,
+   "t_closest": "2022-06-05 02:00:00+00:00",
+   "min_dist_km": 69.1
+  },
+  {
+   "station": "41010",
+   "sid": "AL092022",
+   "name": "IAN",
+   "year": 2022,
+   "t_closest": "2022-09-30 00:00:00+00:00",
+   "min_dist_km": 121.6
+  },
+  {
+   "station": "41010",
+   "sid": "AL092025",
+   "name": "IMELDA",
+   "year": 2025,
+   "t_closest": "2025-09-30 06:00:00+00:00",
+   "min_dist_km": 127.9
+  },
+  {
+   "station": "41010",
+   "sid": "AL142024",
+   "name": "MILTON",
+   "year": 2024,
+   "t_closest": "2024-10-10 15:00:00+00:00",
+   "min_dist_km": 43.4
+  },
+  {
+   "station": "venf1",
+   "sid": "AL092022",
+   "name": "IAN",
+   "year": 2022,
+   "t_closest": "2022-09-28 19:00:00+00:00",
+   "min_dist_km": 48.4
+  },
+  {
+   "station": "venf1",
+   "sid": "AL142024",
+   "name": "MILTON",
+   "year": 2024,
+   "t_closest": "2024-10-10 00:00:00+00:00",
+   "min_dist_km": 35.2
+  },
+  {
+   "station": "venf1",
+   "sid": "AL172022",
+   "name": "NICOLE",
+   "year": 2022,
+   "t_closest": "2022-11-10 12:00:00+00:00",
+   "min_dist_km": 133.1
+  },
+  {
+   "station": "cdrf1",
+   "sid": "AL042024",
+   "name": "DEBBY",
+   "year": 2024,
+   "t_closest": "2024-08-05 09:00:00+00:00",
+   "min_dist_km": 71.0
+  },
+  {
+   "station": "cdrf1",
+   "sid": "AL092024",
+   "name": "HELENE",
+   "year": 2024,
+   "t_closest": "2024-09-27 02:00:00+00:00",
+   "min_dist_km": 96.5
+  },
+  {
+   "station": "cdrf1",
+   "sid": "AL102023",
+   "name": "IDALIA",
+   "year": 2023,
+   "t_closest": "2023-08-30 10:00:00+00:00",
+   "min_dist_km": 90.8
+  },
+  {
+   "station": "cdrf1",
+   "sid": "AL172022",
+   "name": "NICOLE",
+   "year": 2022,
+   "t_closest": "2022-11-10 19:00:00+00:00",
+   "min_dist_km": 7.7
+  },
+  {
+   "station": "sauf1",
+   "sid": "AL042024",
+   "name": "DEBBY",
+   "year": 2024,
+   "t_closest": "2024-08-06 00:00:00+00:00",
+   "min_dist_km": 144.5
+  },
+  {
+   "station": "lkwf1",
+   "sid": "AL172022",
+   "name": "NICOLE",
+   "year": 2022,
+   "t_closest": "2022-11-10 06:00:00+00:00",
+   "min_dist_km": 79.8
+  },
+  {
+   "station": "kywf1",
+   "sid": "AL092022",
+   "name": "IAN",
+   "year": 2022,
+   "t_closest": "2022-09-28 02:00:00+00:00",
+   "min_dist_km": 110.5
+  },
+  {
+   "station": "apcf1",
+   "sid": "AL042024",
+   "name": "DEBBY",
+   "year": 2024,
+   "t_closest": "2024-08-05 07:00:00+00:00",
+   "min_dist_km": 125.5
+  },
+  {
+   "station": "apcf1",
+   "sid": "AL092024",
+   "name": "HELENE",
+   "year": 2024,
+   "t_closest": "2024-09-27 02:00:00+00:00",
+   "min_dist_km": 104.8
+  },
+  {
+   "station": "apcf1",
+   "sid": "AL102023",
+   "name": "IDALIA",
+   "year": 2023,
+   "t_closest": "2023-08-30 10:00:00+00:00",
+   "min_dist_km": 109.2
+  },
+  {
+   "station": "apcf1",
+   "sid": "AL172022",
+   "name": "NICOLE",
+   "year": 2022,
+   "t_closest": "2022-11-11 00:00:00+00:00",
+   "min_dist_km": 103.3
+  },
+  {
+   "station": "pacf1",
+   "sid": "AL172022",
+   "name": "NICOLE",
+   "year": 2022,
+   "t_closest": "2022-11-11 03:00:00+00:00",
+   "min_dist_km": 142.1
+  },
+  {
+   "station": "npsf1",
+   "sid": "AL092022",
+   "name": "IAN",
+   "year": 2022,
+   "t_closest": "2022-09-28 19:00:00+00:00",
+   "min_dist_km": 74.4
+  },
+  {
+   "station": "cwbf1",
+   "sid": "AL042024",
+   "name": "DEBBY",
+   "year": 2024,
+   "t_closest": "2024-08-04 23:00:00+00:00",
+   "min_dist_km": 128.9
+  },
+  {
+   "station": "cwbf1",
+   "sid": "AL092022",
+   "name": "IAN",
+   "year": 2022,
+   "t_closest": "2022-09-29 00:00:00+00:00",
+   "min_dist_km": 141.2
+  },
+  {
+   "station": "cwbf1",
+   "sid": "AL142024",
+   "name": "MILTON",
+   "year": 2024,
+   "t_closest": "2024-10-10 01:00:00+00:00",
+   "min_dist_km": 66.8
+  },
+  {
+   "station": "cwbf1",
+   "sid": "AL172022",
+   "name": "NICOLE",
+   "year": 2022,
+   "t_closest": "2022-11-10 15:00:00+00:00",
+   "min_dist_km": 84.9
+  }
+ ],
+ "tree_text": "|--- p_now <= 1012.68\n|   |--- p_now <= 1009.52\n|   |   |--- p_now <= 1007.55\n|   |   |   |--- class: 1\n|   |   |--- p_now >  1007.55\n|   |   |   |--- class: 1\n|   |--- p_now >  1009.52\n|   |   |--- d6 <= 1.55\n|   |   |   |--- class: 1\n|   |   |--- d6 >  1.55\n|   |   |   |--- class: 0\n|--- p_now >  1012.68\n|   |--- min6 <= 1015.82\n|   |   |--- p_now <= 1013.60\n|   |   |   |--- class: 0\n|   |   |--- p_now >  1013.60\n|   |   |   |--- class: 0\n|   |--- min6 >  1015.82\n|   |   |--- min6 <= 1016.46\n|   |   |   |--- class: 0\n|   |   |--- min6 >  1016.46\n|   |   |   |--- class: 0\n"
+}
