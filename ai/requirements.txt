@@ -1,0 +1,7 @@
+# StormBox AI layer. Plain Python, no agent frameworks.
+ollama>=0.6        # talks to the local Ollama server (LLM + embeddings)
+chromadb>=1.0      # guide index (numpy fallback exists: build_index.py --numpy)
+pyyaml>=6.0        # guide front matter
+numpy>=1.26
+fastapi>=0.110     # used by box-service / the /api/ask route, not by the agent itself
+pytest>=8.0

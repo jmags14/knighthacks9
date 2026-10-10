@@ -5,9 +5,9 @@ __pycache__/
 venv/
 env/
 /Lib/
-Scripts/
-Include/
+/Include/
 pyvenv.cfg
+.ptest_cache
 
 # Environment variables / secrets
 .env
@@ -27,3 +27,8 @@ Thumbs.db
 # Data / database
 data/*.db
 data/chroma/
+# AI layer generated index
+ai/data/chroma/
+ai/data/guides.npy
+ai/data/guides.json
+ai/data/benchmark_results.json
