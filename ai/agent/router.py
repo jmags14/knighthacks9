@@ -35,6 +35,12 @@ INTENTS = [
      r"|\bhow long (has|have|was|were|is).{0,20}(power|electricity|outage)\b"
      r"|\boutage (log|history|duration)\b|\bare we on (battery|wall power)\b",
      ["get_outages"], None),
+    # "What's the weather like outside?" The box only measures INSIDE the house, so the answer says so.
+    ("weather",
+     r"\bweather\b|\bconditions\b|\bhow('s| is| are) (it|things) (looking|going|out)\b"
+     r"|\bwhat('s| is) it like (out|outside)\b|\b(what|how)('s| is| are)\b.{0,25}\boutside\b",
+     ["get_sensors", "get_storm_status"],
+     r"\b(generator|grill|stove|charcoal|food|pets?|dog|cat|car|run|use|keep|store|cook|leave|kit)\b"),
     ("sensors",
      r"\b(temperature|humidity|barometer|wind speed|how windy|rainfall|how much rain)\b"
      r"|\bhow (hot|cold|humid) is it\b|\b(current|what('s| is) the) (air )?pressure\b|\bpressure (reading|now)\b"

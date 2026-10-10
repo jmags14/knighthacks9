@@ -69,7 +69,8 @@ def generate(model, text, timeout):
     t0 = time.perf_counter()
     r = client.generate(model=model, prompt=text, keep_alive=config.LLM_KEEP_ALIVE,
                         options={"num_predict": config.LLM_NUM_PREDICT,
-                                 "temperature": config.LLM_TEMPERATURE}, **extra)
+                                 "temperature": config.LLM_TEMPERATURE,
+                                 "num_ctx": config.LLM_NUM_CTX}, **extra)
     secs = time.perf_counter() - t0
     out = re.sub(r"<think>.*?</think>", "", r["response"], flags=re.S).strip()
     toks = r.get("eval_count") or 0
@@ -132,7 +133,7 @@ def main():
         topic = router.guess_topic(q)
         chunks = rag.search(q, topic, config.RAG_K)
         top = chunks[0]["score"] if chunks else 0
-        gate = "offtopic" if top < config.RAG_MIN_SIM else "unsure" if top < config.RAG_UNSURE else "llm"
+        gate = "no_match" if top < config.RAG_MIN_SCORE else "llm"
         if args.gated and gate != "llm":
             print(f"  {n:>2}. skipped ({gate}, top score {top:.2f}): {q}")
             continue

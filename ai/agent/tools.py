@@ -16,6 +16,7 @@ get_state() converts the second kind into the first (from_box_state).
 from datetime import datetime, timezone
 
 from ai.agent import config, rag
+from ai.ml.storm_job import runtime      # to_sea_level lives in the Colab runtime (loaded by storm_job)
 
 _provider = None
 _checkins = []                  # used when no checkin writer is set
@@ -72,10 +73,23 @@ def get_state():
 
 
 # ---------------------------------------------------------------- the 8 tools
+def sea_level_pressure(state):
+    """Barometer reading -> sea-level pressure (what weather reports and the storm model use).
+    Replay data is already sea level, so it is returned as is."""
+    p = state.get("pressure_hpa")
+    if p is None or state.get("source") == "replay":
+        return p
+    t = state.get("temp_c")
+    return runtime.to_sea_level(p, config.ALTITUDE_M, t if t is not None else 25.0) + config.CAL_OFFSET_HPA
+
+
 def get_sensors():
+    """Raw readings plus pressure_sea_level_hpa (use that one when talking to people)."""
     s = get_state()
-    return {k: s.get(k) for k in ("pressure_hpa", "temp_c", "humidity", "water",
-                                  "wind_mph", "rain_in", "wall_power", "source")}
+    out = {k: s.get(k) for k in ("pressure_hpa", "temp_c", "humidity", "water",
+                                 "wind_mph", "rain_in", "wall_power", "source")}
+    out["pressure_sea_level_hpa"] = sea_level_pressure(s)
+    return out
 
 
 def get_storm_status():

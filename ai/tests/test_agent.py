@@ -199,21 +199,29 @@ def test_p3_both_models_fail_returns_top_guide_chunk(monkeypatch, llm, box):
     assert r["route"] == "rag" and len(r["sources"]) == 1
 
 
-def test_p3_off_topic_skips_llm(monkeypatch, llm, box):
+def test_p3_no_match_skips_llm(monkeypatch, llm, box):
     box()
-    low = [dict(CHUNKS[0], score=0.30)]
-    monkeypatch.setattr(rag, "search", lambda q, topic=None, k=3: low)
+    monkeypatch.setattr(rag, "search", lambda q, topic=None, k=3: [dict(CHUNKS[0], score=0.30)])
     r = agent.answer("What's the capital of France?")
-    assert r["answer"] == agent.OFF_TOPIC and llm == []
+    assert r["answer"] == agent.NO_MATCH and r["route"] == "no_match" and r["sources"] == []
+    assert llm == []
+    assert trace.get(r["trace_id"])["route"] == "no_match"          # logged as no_match
 
 
-def test_p3_weak_match_says_not_sure_with_closest_guide(monkeypatch, llm, box):
+def test_relevance_floor_is_configurable_and_exact(monkeypatch, llm, box):
     box()
-    weak = [dict(CHUNKS[0], score=0.55)]
-    monkeypatch.setattr(rag, "search", lambda q, topic=None, k=3: weak)
-    r = agent.answer("Should I open windows to equalize pressure?")
-    assert r["answer"] == "I'm not sure. The closest guide is: Food Safety Without Power."
-    assert llm == [] and r["sources"][0]["title"] == "Food Safety Without Power"
+    assert config.RAG_MIN_SCORE == 0.70
+    monkeypatch.setattr(rag, "search", lambda q, topic=None, k=3: [dict(CHUNKS[0], score=0.69)])
+    assert agent.answer("something vague")["route"] == "no_match" and llm == []
+    monkeypatch.setattr(rag, "search", lambda q, topic=None, k=3: [dict(CHUNKS[0], score=0.70)])
+    assert agent.answer("something vague")["route"] == "rag" and len(llm) == 1
+    monkeypatch.setattr(config, "RAG_MIN_SCORE", 0.90)              # raising the floor blocks it again
+    assert agent.answer("something vague")["route"] == "no_match"
+
+
+def test_no_match_message_text():
+    assert agent.NO_MATCH == ("I'm not sure about that. I can help with storm, flood, power, water, "
+                              "food, heat and safety questions.")
 
 
 def test_p3_passes_topic_to_search(monkeypatch, llm, box):
@@ -253,7 +261,7 @@ def test_qwen_is_called_with_thinking_off(monkeypatch):
     monkeypatch.setattr(ollama, "Client", FakeClient)
     assert agent._generate(config.LLM_FALLBACK, "p") == "Stay inside."     # <think> block stripped
     assert seen["think"] is False and seen["keep_alive"] == config.LLM_KEEP_ALIVE
-    assert seen["options"] == {"num_predict": 120, "temperature": 0.2}
+    assert seen["options"] == {"num_predict": 120, "temperature": 0.2, "num_ctx": 1024}
     seen.clear()
     agent._generate(config.LLM_MODEL, "p")
     assert "think" not in seen                                              # llama gets no think flag
@@ -264,7 +272,7 @@ def test_prompt_mentions_active_alarm_so_llm_cannot_contradict_it(llm, box):
     box(alarms=[{"id": "flood", "level": "alarm", "since": "x"}])
     agent.answer("Is it safe to eat the ice cream that melted?")
     text = llm[0][1]
-    assert "flood alarm ON" in text and prompt.RULE_ALARM in text
+    assert "active alarms: flood" in text and prompt.RULE_ALARM in text
 
 
 def test_prompt_stays_under_400_words_even_with_long_passages():

@@ -143,6 +143,11 @@ def main():
         n = store_chroma(chunks, vectors)
         print(f"Chroma collection '{config.CHROMA_COLLECTION}' now holds {n} chunks at {config.CHROMA_DIR}")
 
+    # Also precompute the canned-question embeddings so the agent never embeds them at question time.
+    from ai.agent import canned
+    mat, _, entries = canned.build_cache()
+    print(f"Canned cache: {len(entries)} answers, {len(mat)} question vectors -> {config.CANNED_VECTORS}")
+
     test_searches(chunks, vectors)
 
 

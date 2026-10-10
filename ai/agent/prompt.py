@@ -1,9 +1,9 @@
 """Build the P3 prompt (AGENT_PLAN 5.4). Short on purpose: prompt length is what makes the Pi slow."""
-from ai.agent import config
+from ai.agent import config, templates, tools
 from ai.agent.rag import clean_source
 
 # Small models (1B) copy any rule they see, so the base prompt is tiny and the safety
-# rules below are added only when they apply. "I'm not sure" is decided by code in
+# rules below are added only when they apply. "No match" is decided by code in
 # agent.py (guide similarity), not by the model.
 SYSTEM = (
     "You are StormBox, an offline emergency assistant. Do not introduce yourself. "
@@ -42,21 +42,28 @@ def trim(text, max_words):
     return cut[:dot + 1] if dot > len(cut) // 2 else cut + "..."
 
 
+def _num(value, unit, note=""):
+    """'1015 hPa (sea level)' or 'not measured'. Every number gets a label and a unit,
+    because a 1B model will mix up bare numbers (it once called a pressure a humidity)."""
+    return "not measured" if value is None else f"{value:.0f} {unit}" + (f" ({note})" if note else "")
+
+
 def readings_line(state):
-    """One line of live context: 'pressure 987 hPa (falling), temp 31 C, flood alarm ON, wall power OFF'."""
-    bits = []
-    if state.get("pressure_hpa") is not None:
-        phase = state.get("storm", {}).get("phase")
-        bits.append(f"pressure {state['pressure_hpa']:.0f} hPa" + (f" ({phase})" if phase else ""))
-    if state.get("temp_c") is not None:
-        bits.append(f"temp {state['temp_c']:.0f} C")
-    if state.get("wind_mph") is not None:
-        bits.append(f"wind {state['wind_mph']:.0f} mph")
-    for a in state.get("alarms", []):
-        bits.append(f"{a['id']} alarm ON")
-    bits.append("wall power " + ("ON" if state.get("wall_power") else "OFF"))
-    if state.get("source") == "replay":
-        bits.append("data is a REPLAY of a past storm")
+    """Labeled live context, e.g.
+    'pressure: 1015 hPa (sea level), pressure trend: falling, temperature: 29 C (inside the house),
+     humidity: not measured, wind: 5 mph, active alarms: flood, wall power: ON, data: live'."""
+    trend = templates.pressure_trend(state.get("storm", {}).get("phase")) or "unknown"
+    alarms = ", ".join(a["id"] for a in state.get("alarms", [])) or "none"
+    bits = [
+        "pressure: " + _num(tools.sea_level_pressure(state), "hPa", "sea level"),
+        f"pressure trend: {trend}",
+        "temperature: " + _num(state.get("temp_c"), "C", "inside the house"),
+        "humidity: " + _num(state.get("humidity"), "%", "inside the house"),
+        "wind: " + _num(state.get("wind_mph"), "mph"),
+        f"active alarms: {alarms}",
+        "wall power: " + ("ON" if state.get("wall_power") else "OFF"),
+        "data: " + ("REPLAY of a past storm" if state.get("source") == "replay" else "live"),
+    ]
     return ", ".join(bits)
 
 

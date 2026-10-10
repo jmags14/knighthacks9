@@ -173,10 +173,41 @@ def outage_text(o):
     return "Wall power is on and I have no outage recorded."
 
 
+TREND_WORDS = {"falling": "falling", "recovering": "rising", "steady": "steady",
+               "possible_eye": "flat near its lowest point"}
+
+
+def pressure_trend(phase):
+    """Storm phase -> plain trend word for speech and prompts. None if we don't know."""
+    return TREND_WORDS.get(phase)
+
+
+def weather_text(s, storm, source="live"):
+    """'What's the weather like outside?' The box measures INSIDE the house, so say so."""
+    parts = []
+    if s.get("temp_c") is not None:
+        inside = f"Inside the house it's {s['temp_c']:.0f} degrees Celsius, {s['temp_c'] * 9 / 5 + 32:.0f} Fahrenheit"
+        if s.get("humidity") is not None:
+            inside += f", with {s['humidity']:.0f} percent humidity"
+        parts.append(inside + ".")
+    p = s.get("pressure_sea_level_hpa", s.get("pressure_hpa"))
+    if p is not None:
+        trend = pressure_trend(storm.get("phase"))
+        parts.append(f"Pressure is {p:.0f} hectopascals" + (f" and {trend}." if trend else "."))
+    risk = storm.get("risk")
+    parts.append("Storm risk is still warming up." if risk is None
+                 else f"Storm risk score is {round(100 * risk)} percent.")
+    if not parts or (s.get("temp_c") is None and p is None):
+        return "I don't have sensor readings yet."
+    parts.append("The box measures inside the house, so check an official forecast for conditions outside.")
+    return replay_say(" ".join(parts), source)
+
+
 def sensors_text(s, source="live"):
     parts = []
-    if s.get("pressure_hpa") is not None:
-        parts.append(f"pressure {s['pressure_hpa']:.0f} hectopascals")
+    p = s.get("pressure_sea_level_hpa", s.get("pressure_hpa"))
+    if p is not None:
+        parts.append(f"pressure {p:.0f} hectopascals")
     if s.get("temp_c") is not None:
         parts.append(f"temperature {s['temp_c']:.0f} C, {s['temp_c'] * 9 / 5 + 32:.0f} F")
     if s.get("humidity") is not None:

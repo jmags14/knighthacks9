@@ -17,10 +17,12 @@ _np_index = None        # cached (vectors, metadata list)
 
 
 # ---------------------------------------------------------------- embeddings
-def embed_texts(texts, prefix=config.QUERY_PREFIX):
-    """Embed strings with nomic-embed-text. Raises if the Ollama server is not reachable."""
-    client = ollama.Client(timeout=config.EMBED_TIMEOUT_S)
-    return client.embed(model=config.EMBED_MODEL, input=[prefix + t for t in texts])["embeddings"]
+def embed_texts(texts, prefix=config.QUERY_PREFIX, timeout=None):
+    """Embed strings with nomic-embed-text. Raises if the Ollama server is not reachable.
+    keep_alive keeps the embedding model loaded next to the LLM, so it is not reloaded per question."""
+    client = ollama.Client(timeout=timeout or config.EMBED_TIMEOUT_S)
+    return client.embed(model=config.EMBED_MODEL, input=[prefix + t for t in texts],
+                        keep_alive=config.LLM_KEEP_ALIVE)["embeddings"]
 
 
 @lru_cache(maxsize=64)
@@ -35,14 +37,28 @@ def clean_source(source):
     return re.sub(r"\s*<https?://[^>]*>", "", source or "").strip()
 
 
-def sources_of(chunks):
-    """Unique [{"title","source","url"}] for the chunks used in an answer."""
+def split_sources(source):
+    """'Ready.gov <https://a>; CDC <https://b>; StormBox team' -> [(name, url), ...] (url may be '')."""
+    out = []
+    for part in (source or "").split(";"):
+        part = part.strip()
+        m = re.match(r"(.*?)\s*<(https?://[^>]*)>$", part)
+        name, url = (m.group(1).strip(), m.group(2)) if m else (part, "")
+        if name:
+            out.append((name, url))
+    return out
+
+
+def sources_of(chunks, default_title=None):
+    """Each source listed ONCE, no matter how many chunks (or combined 'A; B' strings) cite it.
+    chunks: dicts with title + source. Returns [{"title","source","url"}]."""
     seen, out = set(), []
     for c in chunks:
-        key = (c["title"], c["source"])
-        if key not in seen:
-            seen.add(key)
-            out.append({"title": c["title"], "source": clean_source(c["source"]), "url": c.get("url", "")})
+        for name, url in split_sources(c["source"]):
+            if name not in seen:
+                seen.add(name)
+                out.append({"title": c.get("title") or default_title or name, "source": name,
+                            "url": url or c.get("url", "")})
     return out
 
 

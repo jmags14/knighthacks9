@@ -1,11 +1,13 @@
-"""
-answer(text, channel)  -> {"answer","sources","route","trace_id"}   route: tool | canned | rag
+"""The StormBox agent (AGENT_PLAN 4.2). Plain Python, no framework.
+
+answer(text, channel)  -> {"answer","sources","route","trace_id"}   route: tool | canned | rag | no_match
 explain_event(event)   -> {"answer","lcd","route":"proactive","trace_id"}
 
 Order of work for a question:
-  1. router: live-data question (storm now, water days, battery, ...)?  -> P2 template, no LLM
-  2. canned: close match to a pre-written answer?                       -> P1, no LLM
-  3. otherwise guides + LLM                                             -> P3 (the only LLM path)
+  1. router: live-data question (storm now, weather, water days, battery, ...)?  -> P2 template, no LLM
+  2. canned: close match to a pre-written answer?                                -> P1, no LLM
+  3. guides: best passage close enough?  no -> "no_match" (no LLM)               -> P3 otherwise
+  4. guides + LLM                                                                -> P3 (the only LLM path)
 Why router before canned: canned answers must not depend on live readings (AGENT_PLAN 5.2),
 and "is the storm over?" is close enough to a canned question to steal the match.
 """
@@ -16,7 +18,8 @@ import ollama
 from ai.agent import canned, config, prompt, rag, router, templates, tools
 from ai.agent.trace import Trace
 
-OFF_TOPIC = "I can only help with storm and emergency questions."
+NO_MATCH = ("I'm not sure about that. I can help with storm, flood, power, water, food, heat "
+            "and safety questions.")
 NO_SEARCH = ("I can't search the guides right now. If this is an emergency and your phone "
              "works, call 911.")
 
@@ -28,7 +31,8 @@ def _generate(model, text):
     extra = {"think": False} if model.startswith("qwen3") else {}      # Qwen3: no hidden reasoning
     r = client.generate(model=model, prompt=text, keep_alive=config.LLM_KEEP_ALIVE,
                         options={"num_predict": config.LLM_NUM_PREDICT,
-                                 "temperature": config.LLM_TEMPERATURE}, **extra)
+                                 "temperature": config.LLM_TEMPERATURE,
+                                 "num_ctx": config.LLM_NUM_CTX}, **extra)
     out = re.sub(r"<think>.*?</think>", "", r["response"], flags=re.S)   # in case a model still thinks
     return out.strip()
 
@@ -71,6 +75,8 @@ def _tool_answer(intent, results, state):
         return templates.battery_text(results["get_battery"])
     if intent == "outage":
         return templates.outage_text(results["get_outages"])
+    if intent == "weather":
+        return templates.weather_text(results["get_sensors"], results["get_storm_status"], source)
     if intent == "sensors":
         return templates.sensors_text(results["get_sensors"], source)
     if intent == "flood_check":
@@ -81,13 +87,15 @@ def _tool_answer(intent, results, state):
 
 
 def warm_up():
-    """Call once at startup: embed the canned questions and load the LLM into memory,
-    so the first real question is not slow. Safe to skip; failures are ignored."""
-    try:
-        canned.load()
-        _generate(config.LLM_MODEL, "Say OK.")
-    except Exception:
-        pass
+    """Call once at startup so the first real question is not slow: load the canned vectors
+    (from disk), load the embedding model, and load the LLM. Each step may fail on its own."""
+    for step in (canned.load,
+                 lambda: rag.embed_texts(["warm up"], timeout=config.EMBED_LOAD_TIMEOUT_S),
+                 lambda: _generate(config.LLM_MODEL, "Say OK.")):
+        try:
+            step()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------- entry point 1: questions
@@ -119,8 +127,7 @@ def answer(text, channel="chat"):
             b = canned.best(text)
         tr.canned_score = round(b["score"], 3)
         if b["score"] >= config.CANNED_THRESHOLD and b["score"] - b["runner_up"] >= config.CANNED_MARGIN:
-            src = [{"title": b["source"], "source": b["source"], "url": ""}]
-            return _finish(tr, b["answer"], "canned", src)
+            return _finish(tr, b["answer"], "canned", rag.sources_of([{"source": b["source"]}]))
     except Exception as e:                      # Ollama down: skip canned, RAG will report it
         tr.notes.append(f"canned skipped: {type(e).__name__}")
 
@@ -133,12 +140,9 @@ def answer(text, channel="chat"):
         return _finish(tr, NO_SEARCH, "rag")
     tr.chunks = [{"id": c["id"], "title": c["title"], "score": round(c["score"], 3)} for c in chunks]
 
-    top = chunks[0]["score"] if chunks else 0
-    if top < config.RAG_MIN_SIM:                # nothing close: off-topic, skip the LLM
-        return _finish(tr, OFF_TOPIC, "rag")
-    if top < config.RAG_UNSURE:                 # weak match: say so instead of letting a 1B model guess
-        c = chunks[0]
-        return _finish(tr, f"I'm not sure. The closest guide is: {c['title']}.", "rag", rag.sources_of(chunks[:1]))
+    # Relevance floor: if even the best passage is a weak match, do not let a 1B model guess.
+    if not chunks or chunks[0]["score"] < config.RAG_MIN_SCORE:
+        return _finish(tr, NO_MATCH, "no_match")
 
     with tr.step("prompt"):
         full_prompt = prompt.build_prompt(text, state, chunks, r["topic"])

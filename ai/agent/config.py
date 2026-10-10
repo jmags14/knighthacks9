@@ -15,14 +15,15 @@ LLM_TIMEOUT_S = 15              # P3 answer slower than this -> try fallback
 LLM_NUM_PREDICT = 120           # max tokens in an answer
 LLM_TEMPERATURE = 0.2
 LLM_KEEP_ALIVE = "24h"          # keep the model loaded between questions
-EMBED_TIMEOUT_S = 10
+LLM_NUM_CTX = 1024              # context window: prompt (<=~600 tokens) + answer fits; smaller = faster load/prefill
+EMBED_TIMEOUT_S = 10            # one question embedding (model already loaded)
+EMBED_LOAD_TIMEOUT_S = 60       # first embedding / cache build (model may need to load)
 
 # --- RAG / canned ---
 RAG_K = 3                       # chunks given to the LLM
 CANNED_THRESHOLD = 0.85         # cosine similarity needed for a canned answer (plan said 0.80; raised, see step 2)
 CANNED_MARGIN = 0.03            # best canned entry must beat the next DIFFERENT entry by this much
-RAG_UNSURE = 0.60               # best chunk below this = "I'm not sure, closest guide is X" (no LLM)
-RAG_MIN_SIM = 0.50              # best guide chunk below this = off-topic question, no LLM call (tune in ask.py)
+RAG_MIN_SCORE = 0.70            # best guide chunk below this = no_match: no LLM call (tune in ask.py)
 DOC_PREFIX = "search_document: "    # nomic-embed-text wants these prefixes
 QUERY_PREFIX = "search_query: "
 PROMPT_MAX_WORDS = 400
@@ -42,5 +43,7 @@ CHROMA_DIR = ROOT / "ai" / "data" / "chroma"
 CHROMA_COLLECTION = "guides"
 NUMPY_VECTORS = ROOT / "ai" / "data" / "guides.npy"     # fallback index
 NUMPY_META = ROOT / "ai" / "data" / "guides.json"
+CANNED_VECTORS = ROOT / "ai" / "data" / "canned.npy"    # precomputed canned-question embeddings
+CANNED_META = ROOT / "ai" / "data" / "canned_meta.json"  # fingerprint + owner of each vector row
 BOX_DB = ROOT / "data" / "box.db"           # CS 1's SQLite file; traces go here if it exists
 STORM_MODEL_FILE = ROOT / "ai" / "ml" / "storm_risk.json"
