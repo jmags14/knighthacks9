@@ -142,6 +142,8 @@ async def lifespan(app: FastAPI):
     if _fake:
         _fake.stop()
         fake_task.cancel()
+    else:
+        source.close()
 
 
 # ------------------------------------------------------------------ app
