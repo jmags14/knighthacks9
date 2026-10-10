@@ -47,6 +47,15 @@ STORM_V2_FILES = {"pressure": "storm_risk_pressure.json", "wind": "storm_risk_wi
 GAL_PER_PERSON_DAY = 1.0        # Ready.gov
 PET_GAL = 0.25                  # gallons per pet per day (check pets.md)
 
+# --- Internet check (ai/system/netcheck.py) ---
+NET_INTERVAL_S = 30             # seconds between checks
+NET_TIMEOUT_S = 2               # TCP connect timeout per target
+# IP + port, no DNS lookup. Online if ANY connects. 443 first: many networks block TCP port 53 (tested),
+# while 443 is almost never blocked. 53 stays as a fallback.
+NET_TARGETS = (("1.1.1.1", 443), ("8.8.8.8", 443), ("1.1.1.1", 53), ("8.8.8.8", 53))
+NET_DOWN_AFTER = 3              # this many failed checks in a row -> "lost"
+NET_UP_AFTER = 2                # this many good checks in a row -> "restored"
+
 # --- Paths (relative to repo root) ---
 KNOWLEDGE_DIR = ROOT / "ai" / "knowledge"
 CANNED_FILE = KNOWLEDGE_DIR / "canned.json"

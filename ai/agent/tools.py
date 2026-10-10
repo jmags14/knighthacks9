@@ -16,7 +16,8 @@ get_state() converts the second kind into the first (from_box_state).
 from datetime import datetime, timezone
 
 from ai.agent import config, rag
-from ai.ml.storm_job import runtime      # to_sea_level lives in the Colab runtime (loaded by storm_job)
+from ai.system import netcheck
+from ai.ml.storm_job import runtime     # to_sea_level lives in the Colab runtime (loaded by storm_job)
 
 _provider = None
 _checkins = []                  # used when no checkin writer is set
@@ -146,6 +147,12 @@ def get_outages(now=None):
             "last_restored": out.get("last_restored"), "duration_min": duration}
 
 
+def get_connectivity():
+    """Is the internet reachable? Read from ai/system/netcheck.py ('online' is None until it has checked)."""
+    s = netcheck.status()
+    return {"online": s["online"], "since": s["since"]}
+
+
 def log_checkin(name, status):
     """Save a family check-in. Returns the new row id."""
     if _checkin_writer:
@@ -158,4 +165,5 @@ def log_checkin(name, status):
 NO_ARG_TOOLS = {
     "get_sensors": get_sensors, "get_storm_status": get_storm_status, "get_alarms": get_alarms,
     "water_calculator": water_calculator, "get_battery": get_battery, "get_outages": get_outages,
+    "get_connectivity": get_connectivity,
 }

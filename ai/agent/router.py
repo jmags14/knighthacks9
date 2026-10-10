@@ -35,6 +35,13 @@ INTENTS = [
      r"|\bhow long (has|have|was|were|is).{0,20}(power|electricity|outage)\b"
      r"|\boutage (log|history|duration)\b|\bare we on (battery|wall power)\b",
      ["get_outages"], None),
+    # Is the internet up? (ai/system/netcheck.py). Phone / password / how-to questions are guide questions.
+    ("connectivity",
+     r"\binternet\b|\bwi-?fi\b|\bare we (online|offline)\b|\bis (it|the box|stormbox) (online|offline)\b"
+     r"|\b(network|internet|wifi|wi-fi) connection\b|\bconnection (is|status|working|down|up)\b"
+     r"|\bis the connection\b|\bconnected to the\b",
+     ["get_connectivity"],
+     r"\b(phone|cell|cellular|password|911|call|text|signal|bars|reset|router|fix|set ?up|install)\b"),
     # Heat index from the INSIDE temperature and humidity. Questions about heat illness, food, pets etc.
     # are guide questions, not sensor questions.
     ("heat_index",

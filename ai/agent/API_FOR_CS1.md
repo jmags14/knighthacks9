@@ -187,7 +187,48 @@ result = run_storm_job(readings, source="live")     # call about once a minute; 
 - No hardware needed to see it working: `python ai/scripts/replay_check.py` (table of a whole storm)
   and `python ai/scripts/replay_check.py --at 30 -q "Is the storm over?"` (agent at hour 30).
 
-## 7. Try it without the box
+## 7. Internet check (`ai/system/netcheck.py`)
+
+Detects when the internet goes down or comes back. Standard library only, runs in its own daemon
+thread, never blocks you. CS 1 owns system health, so **you start it, once, at box-service startup**:
+
+```python
+from ai.system import netcheck
+from ai.voice import pipeline
+
+def on_net(event):                      # called on the monitor thread: keep it quick
+    q.put(event)                        # enqueue; a worker thread does the speaking (see below)
+
+netcheck.start(on_net)                  # returns the monitor; netcheck.stop() at shutdown
+# worker thread:  pipeline.speak_event(event)   (or agent.explain_event(event) for text + LCD only)
+```
+- **How it checks:** every 30 s it opens a TCP connection (2 s timeout) to `1.1.1.1:443`, then
+  `8.8.8.8:443`, then port 53 on both, stopping at the first that connects. Port 443 goes first because some
+  networks block TCP port 53 even though the internet works (we saw this). No DNS lookup, so the Pi only
+  needs an IP route. Online if any connects. A fully offline check takes up to 8 s (4 x 2 s timeouts).
+- **No flapping:** 3 failed checks in a row (about 90 s) -> `lost`. 2 good checks in a row (about 60 s) ->
+  `restored`. The first check only sets the starting state: starting with internet up sends nothing;
+  starting offline sends `lost` after 3 misses. Each change sends one event.
+- **Event** passed to your callback (add `"source":"replay"` yourself if you ever replay one):
+  `{"t":"net","state":"lost"|"restored","ts":"2026-10-10T18:30:00+00:00"}` (UTC ISO).
+  Hand it to `agent.explain_event(event)` / `pipeline.speak_event(event)` like any other event. Both block
+  while speaking, so call them from a worker thread, not from the callback.
+  - `lost`: say "Internet connection lost. StormBox keeps working offline: alarms, guides and voice still
+    work. If your phone has service, you can still call or text 911." LCD: `No internet` / `Works offline`.
+  - `restored`: "Internet is back. Check official updates from the National Hurricane Center and local
+    officials." LCD: `Internet is back` / `Check NHC alerts`.
+- **Dashboard "Internet: unreachable" health line:** call `netcheck.status()` any time (cheap, thread-safe):
+  `{"online": True|False|None, "since": iso|None, "last_check": iso|None, "misses": n}`.
+  `online is False` -> show "Internet: unreachable" (with `since`); `None` -> "checking" (not started yet or no
+  result yet); `True` -> OK. It works without any callback, so you can poll it instead of listening.
+- **Asking the agent:** "Is the internet working?", "Are we online?", "Is the wifi working?" are answered
+  instantly from this status (new tool `get_connectivity`, no LLM). Nothing to wire: it reads
+  `netcheck.status()` itself, so it says "I haven't checked the internet connection yet" until you call
+  `netcheck.start(...)`.
+- **Settings** in `ai/agent/config.py`: `NET_INTERVAL_S`, `NET_TIMEOUT_S`, `NET_TARGETS`,
+  `NET_DOWN_AFTER`, `NET_UP_AFTER`. `netcheck.start(on_net, interval=..., targets=...)` can override them.
+
+## 8. Try it without the box
 
 ```powershell
 python -m uvicorn ai.scripts.dev_server:app --port 8000      # the HTTP API

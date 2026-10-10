@@ -4,6 +4,8 @@ No LLM in here. EE 1 and CS 1 can read the exact LCD strings in P0 below.
 LCD rule: every line is at most 16 characters (the Grove LCD is 16x2).
 """
 
+from datetime import datetime, timezone
+
 from ai.agent import heat
 
 LCD_WIDTH = 16
@@ -58,6 +60,16 @@ P0 = {
         "lcd": ("Power out", "On battery"),
         "say": "Wall power is out. The box is on battery.",
     },
+    "net_lost": {
+        "lcd": ("No internet", "Works offline"),
+        "say": "Internet connection lost. StormBox keeps working offline: alarms, guides and voice "
+               "still work. If your phone has service, you can still call or text 911.",
+    },
+    "net_restored": {
+        "lcd": ("Internet is back", "Check NHC alerts"),
+        "say": "Internet is back. Check official updates from the National Hurricane Center "
+               "and local officials.",
+    },
 }
 
 
@@ -85,6 +97,8 @@ def event_key(event):
     elif kind == "power":
         if event.get("state", event.get("event")) == "lost":
             return "power_lost"
+    elif kind == "net":                          # from ai/system/netcheck.py
+        return {"lost": "net_lost", "restored": "net_restored"}.get(event.get("state"))
     return None
 
 
@@ -187,6 +201,24 @@ def outage_text(o):
     if o.get("last_lost"):
         return f"Wall power is on. It last went out at {o['last_lost']}."
     return "Wall power is on and I have no outage recorded."
+
+
+def connectivity_text(c, now=None):
+    """'Is the internet working?' c = get_connectivity(). Instant template, no LLM."""
+    online = c.get("online")
+    if online is None:
+        return "I haven't checked the internet connection yet."
+    if online:
+        return ("Yes, the internet is working. StormBox does not need it: alarms, guides and voice "
+                "work either way.")
+    text = "No, the internet is down"
+    try:
+        since = datetime.fromisoformat(c["since"])
+        mins = max(0, int(((now or datetime.now(timezone.utc)) - since).total_seconds() // 60))
+        text += f" and has been for {_minutes_text(mins)}" if mins else ""
+    except (KeyError, TypeError, ValueError):
+        pass
+    return text + ". " + P0["net_lost"]["say"].split(". ", 1)[1]
 
 
 TREND_WORDS = {"falling": "falling", "recovering": "rising", "steady": "steady",
