@@ -34,7 +34,7 @@ CAL_OFFSET_HPA = 0.0            # sea-level reading minus nearby airport/NWS rea
 
 # --- Storm risk model choice (ai/ml/storm_job.py). Defaults = exactly the original v1 pressure model ---
 STORM_MODEL_MODE = "v1"         # LIVE data. "v1" = pressure model only | "auto" = pick v1/v2 by which sensors work
-STORM_REPLAY_MODEL = "v1"       # REPLAY demo. "v1" = pressure only | "auto" = v2 "both" if the replay has wind columns
+STORM_REPLAY_MODEL = "auto"     # REPLAY demo. "v1" = pressure only | "auto" = v2 "both" if the replay has wind columns
 WIND_RAW_UNIT = "ms"            # unit of the box's bare "wind"/"gust" field: "ms" (m/s, what the sensor reports) or "mph".
                                 # The agent speaks mph, so it converts. Fields named wind_ms / wind_mph are never ambiguous.
 SENSOR_ONLINE_MIN = 30          # a sensor counts as working if it sent a good reading in the last N minutes
