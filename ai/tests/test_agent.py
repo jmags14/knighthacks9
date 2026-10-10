@@ -104,7 +104,8 @@ def test_p2_water_battery_outage_sensors(no_ollama, box):
     assert "1.8 days" in agent.answer("How long will our water last?")["answer"]
     assert "11.5 hours" in agent.answer("How much battery is left?")["answer"]
     assert "Wall power has been out" in agent.answer("When did the power go out?")["answer"]
-    assert "29 C" in agent.answer("What's the temperature?")["answer"]
+    a = agent.answer("What's the temperature?")["answer"]       # temperature first, other readings after
+    assert a.startswith("Inside the house it's 29 degrees Celsius, 84 Fahrenheit") and "hectopascals" in a
 
 
 def test_p2_replay_storm_answer_is_marked(no_ollama, box):

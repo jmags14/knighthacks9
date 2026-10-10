@@ -62,8 +62,9 @@ def _sensor_summary(state):
         "alarms": [a["id"] for a in state.get("alarms", [])], "phase": state["storm"].get("phase")}
 
 
-def _tool_answer(intent, results, state):
-    """P2: turn tool results into a sentence. None = nothing to say (fall through to canned/RAG)."""
+def _tool_answer(intent, results, state, focus=None):
+    """P2: turn tool results into a sentence. None = nothing to say (fall through to canned/RAG).
+    focus = what a weather/sensor question is about (wind, rain, pressure, temperature) or None."""
     source = state.get("source", "live")
     if intent == "storm_status":
         return templates.storm_status_text(results["get_storm_status"], results["get_alarms"]["alarms"], source)
@@ -76,9 +77,11 @@ def _tool_answer(intent, results, state):
     if intent == "outage":
         return templates.outage_text(results["get_outages"])
     if intent == "weather":
-        return templates.weather_text(results["get_sensors"], results["get_storm_status"], source)
+        return templates.weather_text(results["get_sensors"], results["get_storm_status"], source, focus)
     if intent == "sensors":
-        return templates.sensors_text(results["get_sensors"], source)
+        if focus:           # "Is it windy?" / "What's the temperature?" -> that reading first, then the rest
+            return templates.weather_text(results["get_sensors"], results["get_storm_status"], source, focus)
+        return templates.sensors_text(results["get_sensors"], source)   # plain "show the readings"
     if intent == "flood_check":
         # Flood alarm ON -> the same words as the proactive alarm. Otherwise fall through.
         if any(a["id"] == "flood" for a in results["get_alarms"]["alarms"]):
@@ -117,7 +120,7 @@ def answer(text, channel="chat"):
         results = {name: tools.NO_ARG_TOOLS[name]() for name in r["tools"]}
     tr.tools = results
     if r["path"] == "tool":
-        reply = _tool_answer(r["intent"], results, state)
+        reply = _tool_answer(r["intent"], results, state, r.get("focus"))
         if reply:
             return _finish(tr, reply, "tool")
 
@@ -162,7 +165,7 @@ def explain_event(event):
     tr.sensors = _sensor_summary(state)
     source = event.get("source", state.get("source", "live"))
     with tr.step("template"):
-        p0 = templates.p0(event, source)
+        p0 = templates.p0(event, source, state)
     if p0 is None:
         return {"answer": "", "lcd": ("", ""), "route": "proactive", "trace_id": tr.save("", "proactive")}
     return {"answer": p0["say"], "lcd": p0["lcd"], "route": "proactive",

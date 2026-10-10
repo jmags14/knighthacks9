@@ -44,8 +44,11 @@ INTENTS = [
     ("sensors",
      r"\b(temperature|humidity|barometer|wind speed|how windy|rainfall|how much rain)\b"
      r"|\bhow (hot|cold|humid) is it\b|\b(current|what('s| is) the) (air )?pressure\b|\bpressure (reading|now)\b"
-     r"|\b(sensor )?readings?\b",
-     ["get_sensors"], r"\b(fridge|freezer|food|insulin|cook|medicine|water|oven)\b"),
+     r"|\b(sensor )?readings?\b"
+     r"|\bis it (very |really |getting )?(windy|raining|rainy|hot|cold|humid)\b|\bhow (strong|fast) is the wind\b"
+     r"|\bhow hard is it raining\b|\bwind right now\b",
+     ["get_sensors", "get_storm_status"],        # storm status gives the pressure trend for the answer
+     r"\b(fridge|freezer|food|insulin|cook|medicine|water|oven)\b"),
     # Questions about water coming IN. If the flood alarm is on we answer with the P0 flood text;
     # if not, the agent carries on to canned / RAG with topic=flood.
     ("flood_check",
@@ -83,12 +86,27 @@ def guess_topic(text):
     return None
 
 
+# What a weather/sensor question is really about, so the answer can start with it ("Is it windy?" -> wind first).
+FOCUS = [
+    ("wind", r"\b(wind|windy|winds|gusts?|gusty|breeze)\b"),
+    ("rain", r"\b(rain|raining|rainy|rainfall|precipitation)\b"),
+    ("pressure", r"\b(pressure|barometer|barometric)\b"),
+    ("temperature", r"\b(temperature|temp|hot|cold|warm|humid|humidity|degrees)\b"),
+]
+
+
+def focus_of(text):
+    t = text.lower()
+    return next((name for name, pattern in FOCUS if re.search(pattern, t)), None)
+
+
 def route(text):
     t = text.lower().strip()
     for intent, pattern, tools, never in INTENTS:
         if re.search(pattern, t) and not (never and re.search(never, t)):
             return {"intent": intent, "path": "tool", "tools": tools,
-                    "topic": "flood" if intent == "flood_check" else None}
+                    "topic": "flood" if intent == "flood_check" else None,
+                    "focus": focus_of(t) if intent in ("weather", "sensors") else None}
     # Everything else: canned, then guides + LLM. Give the LLM today's readings and alarms.
     return {"intent": "general", "path": "rag", "tools": ["get_sensors", "get_alarms"],
-            "topic": guess_topic(t)}
+            "topic": guess_topic(t), "focus": None}

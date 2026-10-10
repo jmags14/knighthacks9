@@ -28,14 +28,19 @@ P0 = {
         "lcd": ("STORM ALERT", "Stay inside"),
         "say": "Pressure is dropping very fast. Go to your safest interior room now.",
     },
+    # "say_live" is used when the box reports the current wind ({w} = mph); otherwise "say".
     "wind_warn": {
         "lcd": ("High winds", "Avoid windows"),
         "say": "Winds are high, 39 miles per hour or more. Stay inside and away from windows.",
+        "say_live": "Winds are high, 39 miles per hour or more. Right now the wind is {w} miles per hour. "
+                    "Stay inside and away from windows.",
     },
     "wind_alarm": {
         "lcd": ("Extreme winds", "Go interior room"),
         "say": "Winds are at hurricane force, 74 miles per hour or more. Go to your safest "
                "interior room now and stay away from windows.",
+        "say_live": "Winds are at hurricane force, 74 miles per hour or more. Right now the wind is {w} "
+                    "miles per hour. Go to your safest interior room now and stay away from windows.",
     },
     "phase_possible_eye": {
         "lcd": ("Possible eye", "Stay inside"),
@@ -95,14 +100,19 @@ def replay_say(text, source):
     return f"Replay: {text}" if source == "replay" else text
 
 
-def p0(event, source="live"):
-    """Return {"say": str, "lcd": (l1, l2)} for an event, or None."""
+def p0(event, source="live", state=None):
+    """Return {"say": str, "lcd": (l1, l2)} for an event, or None.
+    state (optional) = the box state, so wind alarms can say the wind speed right now."""
     key = event_key(event)
     if key is None:
         return None
     entry = P0[key]
+    say = entry["say"]
+    wind = (state or {}).get("wind_mph")
+    if "say_live" in entry and wind is not None:
+        say = entry["say_live"].format(w=f"{wind:.0f}")
     lcd = replay_lcd(entry["lcd"]) if source == "replay" else entry["lcd"]
-    return {"say": replay_say(entry["say"], source), "lcd": lcd, "key": key}
+    return {"say": replay_say(say, source), "lcd": lcd, "key": key}
 
 
 # ---------------------------------------------------------------- P2: tool answers
@@ -182,33 +192,66 @@ def pressure_trend(phase):
     return TREND_WORDS.get(phase)
 
 
-def weather_text(s, storm, source="live"):
-    """'What's the weather like outside?' Answered fully offline, never by sending people to a forecast.
-    Outside clues come first: wind and rain sensors, and pressure (air pressure is the same inside and
-    out). Temperature and humidity are measured INSIDE the house, so they are labeled that way."""
-    parts = []
-    outside = []
+def _wind_meaning(mph):
+    """Plain words for a wind speed. 39 and 74 mph match the box's wind warn / alarm levels."""
+    if mph < 1:
+        return "so it's calm"
+    if mph < 8:
+        return "a light breeze"
+    if mph < 19:
+        return "a steady breeze"
+    if mph < 32:
+        return "fairly windy"
+    if mph < 39:
+        return "strong wind"
+    if mph < 74:
+        return "tropical-storm strength, so stay away from windows"
+    return "hurricane strength, so get to your safest interior room"
+
+
+PRESSURE_MEANING = {
+    "falling": "A steady drop like this can mean a storm is getting closer.",
+    "steady": "That is steady, so there is no storm pattern right now.",
+    "recovering": "It is coming back up, so the worst may be passing. Stay inside until officials say it is safe.",
+    "possible_eye": "That could be the eye of a storm, so stay inside.",
+}
+
+
+def weather_text(s, storm, source="live", focus=None):
+    """'What's the weather like outside?' / 'Is it windy?' Answered fully offline, never by sending people
+    to a forecast. Every number is kept. With a focus (wind, rain, pressure, temperature) that part comes
+    first. Outside clues: wind, rain and pressure (air pressure is the same inside and out); temperature
+    and humidity are measured INSIDE the house, so they are labeled that way."""
+    p = s.get("pressure_sea_level_hpa", s.get("pressure_hpa"))
+    if s.get("temp_c") is None and p is None:
+        return "I don't have sensor readings yet."
+    sections = {}                                               # key -> sentence(s), in the default order
     if s.get("wind_mph") is not None:
-        outside.append(f"wind {s['wind_mph']:.0f} miles per hour")
+        w = s["wind_mph"]
+        sections["wind"] = f"Outside, wind is {w:.0f} miles per hour, {_wind_meaning(w)}."
     if s.get("rain_in") is not None:
-        outside.append("no rain measured" if s["rain_in"] <= 0 else f"{s['rain_in']:.1f} inches of rain")
-    if outside:
-        parts.append("Outside, the box reads " + " and ".join(outside) + ".")
+        sections["rain"] = ("The rain gauge shows no rain." if s["rain_in"] <= 0
+                            else f"The rain gauge shows {s['rain_in']:.1f} inches of rain.")
+    if p is not None:
+        trend = pressure_trend(storm.get("phase"))
+        text = f"Pressure is {p:.0f} hectopascals" + (f" and {trend}." if trend else ".")
+        sections["pressure"] = (text + " " + PRESSURE_MEANING[storm.get("phase")]
+                                if storm.get("phase") in PRESSURE_MEANING else text)
     if s.get("temp_c") is not None:
         inside = f"Inside the house it's {s['temp_c']:.0f} degrees Celsius, {s['temp_c'] * 9 / 5 + 32:.0f} Fahrenheit"
         if s.get("humidity") is not None:
             inside += f", with {s['humidity']:.0f} percent humidity"
-        parts.append(inside + ".")
-    p = s.get("pressure_sea_level_hpa", s.get("pressure_hpa"))
-    if p is not None:
-        trend = pressure_trend(storm.get("phase"))
-        parts.append(f"Pressure is {p:.0f} hectopascals" + (f" and {trend}." if trend else "."))
+        sections["temperature"] = inside + "."
     risk = storm.get("risk")
-    parts.append("Storm risk is still warming up." if risk is None
-                 else f"Storm risk score is {round(100 * risk)} percent.")
-    if not parts or (s.get("temp_c") is None and p is None):
-        return "I don't have sensor readings yet."
-    parts.append("Temperature and humidity are indoor readings. Pressure, wind and rain show what "
+    sections["risk"] = ("Storm risk is still warming up." if risk is None
+                        else f"Storm risk score is {round(100 * risk)} percent.")
+
+    if focus in sections:                                       # asked about one thing: answer it first
+        rest = [sections[k] for k in sections if k != focus]
+        parts = [sections[focus], "Here are the other readings."] + rest
+    else:
+        parts = ["Here's what the box is reading."] + list(sections.values())
+    parts.append("Temperature and humidity are indoor readings. Pressure, wind and rain tell you what "
                  "is happening outside.")
     return replay_say(" ".join(parts), source)
 

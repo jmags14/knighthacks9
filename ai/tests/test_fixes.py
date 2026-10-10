@@ -140,7 +140,7 @@ def test_weather_answer_says_inside_and_uses_template_no_llm(monkeypatch, box):
     assert "Inside the house it's 29 degrees Celsius" in a
     assert "Pressure is 1015 hectopascals and steady" in a
     assert "Storm risk score is 2 percent" in a
-    assert "Outside, the box reads wind 5 miles per hour and no rain measured." in a   # box() defaults
+    assert "Outside, wind is 5 miles per hour, a light breeze." in a and "shows no rain" in a   # box() defaults
     assert "indoor readings" in a and "forecast" not in a      # works offline: never points to a forecast
 
 
