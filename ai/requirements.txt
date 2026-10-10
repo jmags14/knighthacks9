@@ -4,4 +4,6 @@ chromadb>=1.0      # guide index (numpy fallback exists: build_index.py --numpy)
 pyyaml>=6.0        # guide front matter
 numpy>=1.26
 fastapi>=0.110     # used by box-service / the /api/ask route, not by the agent itself
+uvicorn>=0.29      # runs ai/scripts/dev_server.py locally
+httpx>=0.27        # FastAPI's TestClient needs it (tests only)
 pytest>=8.0

@@ -103,5 +103,17 @@ def get(trace_id):
     return _recent.get(trace_id)
 
 
+def recent(limit=20):
+    """The newest `limit` traces as JSON-friendly dicts (newest first), for GET /api/traces.
+    The *_json columns are decoded so the frontend gets real objects, not strings."""
+    out = []
+    for trace_id in sorted(_recent, reverse=True)[:limit]:
+        row = {k: v for k, v in _recent[trace_id].items() if k != "_trace"}   # drop the live object
+        for col in ("tools_json", "chunks_json", "sensors_json", "timings_json"):
+            row[col[:-5]] = json.loads(row.pop(col))                          # "tools_json" -> "tools"
+        out.append(row)
+    return out
+
+
 def last():
     return _recent[max(_recent)] if _recent else None
