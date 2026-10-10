@@ -11,6 +11,19 @@ app.include_router(agent_router)          # adds POST /api/ask and GET /api/trac
 
 Run uvicorn from the **repo root** so `import ai.agent` works. Install deps: `pip install -r ai/requirements.txt`.
 
+### One-time setup on every machine (your laptop AND the Pi)
+These files are git-ignored, so a fresh clone does not have them. Without them the agent answers
+"I can't search the guides right now" to every guide question.
+```
+ollama pull llama3.2:1b
+ollama pull qwen3:0.6b
+ollama pull nomic-embed-text
+python ai/scripts/build_index.py                  # guide search index (Ollama must be running)
+python ai/scripts/download_voice_models.py        # voice only; needs internet once, then fully offline
+```
+Re-run `build_index.py` whenever a guide changes. Check any failure with `GET /api/traces?limit=1`:
+`timings.notes` says what went wrong (e.g. `rag failed: ConnectError` = Ollama is not running).
+
 ## 2. Give the agent the box state (required)
 
 The agent never reads the sensors itself. At startup, hand it a function that returns the
@@ -28,6 +41,9 @@ agent.warm_up()                                   # once, at startup: loads mode
   `alarms[{id,level,since}]`, `storm{phase,risk,alert,reason,model_version}`, `src`).
   `tools.from_box_state()` converts it.
 - Also useful if you have them: `household`, `supplies`.
+- **Wind is in m/s** in `readings.wind` (what the sensor reports). The agent converts to mph when it
+  speaks (setting `WIND_RAW_UNIT` in `ai/agent/config.py`). Convert to mph only on the dashboard.
+- Without `readings.wind` / `readings.rain`, the "weather outside" answer has no outside readings.
 - Return a fresh snapshot (or a copy), not a dict that another thread is mutating.
 - If no provider is set, the agent sees an empty box and answers guide questions only.
 
@@ -118,7 +134,35 @@ For a faster Pi voice set `PIPER_VOICE = "en_US-lessac-low"`, then run
 
 **Pinned versions:** use `ai/requirements.txt` as is. `av` must stay below 19 or faster-whisper crashes.
 
-## 6. Try it without the box
+## 6. Storm risk job (`ai/ml/storm_job.py`), including the wind models
+
+```python
+from ai.ml.storm_job import run_storm_job
+result = run_storm_job(readings, source="live")     # call about once a minute; "replay" for replay rows
+```
+- `readings` = recent rows covering the last 7+ hours: dicts with `ts` (ISO or datetime) and
+  `pressure_hpa` (or `p`), `temp_c`, and for wind: `wind_ms` (or bare `wind`, m/s) and optionally
+  `gust_ms` (or `gust`). Rows can be pressure-only or wind-only; send what each sensor has.
+- **Gust:** if you send no `gust` field, the job computes it: highest 5-second average per hour
+  when readings come about every second, otherwise the highest single reading.
+- Result: `status` = `"ok"` | `"warming up"` | `"sensors offline"`, plus `risk`, `alert`, `reason`,
+  `path`, `model_version`, and **`model`** = `"pressure"` | `"wind"` | `"both"` (None if offline).
+  Put `reason` into the box state's `storm.reason`; it already says e.g.
+  "Storm risk 97% (both model) because ...", and the agent repeats it. A warming-up result also has
+  `hours_have` / `hours_needed` (show "3 of 7 hours" on the dashboard).
+- **Which model runs** is set in `ai/agent/config.py`: `STORM_MODEL_MODE` for live (`"v1"` = pressure
+  only, `"auto"` = pick by which sensors sent a good reading in the last 30 minutes) and
+  `STORM_REPLAY_MODEL` for the replay demo (`"auto"` = the wind model "both" if the replay has wind).
+- **Needs 7 hours of history** before it gives a score. Save readings to SQLite and reload them at
+  startup, or every reboot restarts the 7 hours. A gap of more than 2 hours also restarts it.
+- **Replay:** keep a separate replay history (never mix it with live). Run the job once per simulated
+  hour (every 6 rows of 10 minutes), not once per real minute. Replay files: `ai/ml/v2/replay/*.csv`
+  (`ts,pressure_hpa,wind_ms,gust_ms`) listed in `ai/ml/v2/replay/index.json`. Tree JSON for the
+  dashboard: `ai/ml/storm_risk.json` (pressure) or `ai/ml/v2/storm_risk_<wind|both>.json`.
+- No hardware needed to see it working: `python ai/scripts/replay_check.py` (table of a whole storm)
+  and `python ai/scripts/replay_check.py --at 30 -q "Is the storm over?"` (agent at hour 30).
+
+## 7. Try it without the box
 
 ```powershell
 python -m uvicorn ai.scripts.dev_server:app --port 8000      # the HTTP API

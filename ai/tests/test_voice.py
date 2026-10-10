@@ -14,6 +14,7 @@ from ai.voice import config, pipeline, tts
     ("temperature 29 C, 84 F", "temperature 29 degrees Celsius, 84 degrees Fahrenheit"),   # template style
     ("Pressure is 996.0 hPa.", "Pressure is 996.0 hectopascals."),
     ("wind 45 mph", "wind 45 miles per hour"),
+    ("gust is 26.2 m/s (about 59 mph)", "gust is 26.2 meters per second (about 59 miles per hour)"),
     ("**Stay** inside.", "Stay inside."),
 ])
 def test_clean_text_units_and_markdown(raw, expected):

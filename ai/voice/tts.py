@@ -26,6 +26,7 @@ def clean_text(text):
     text = text.replace("°", " degrees ")                              # any leftover degree sign
     text = re.sub(r"\bhPa\b", "hectopascals", text)
     text = re.sub(r"\bmph\b", "miles per hour", text)
+    text = re.sub(r"\bm/s\b", "meters per second", text)
     # 3. markdown characters that would be read out loud or confuse the voice
     text = re.sub(r"[*_`#>]+", "", text)
     return re.sub(r"\s+", " ", text).strip()
