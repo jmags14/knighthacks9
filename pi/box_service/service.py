@@ -5,16 +5,20 @@ keeps BoxState up to date, sends heartbeats, and watches health.
 Start with:  asyncio.create_task(service.start())
 """
 import asyncio
+import csv
 import json
 import sqlite3
 import time
 from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Awaitable, Callable
 
 from .state import BoxState
 
-from ai.agent.config import ALTITUDE_M, CAL_OFFSET_HPA, BOX_DB
+from ai.agent.config import ALTITUDE_M, CAL_OFFSET_HPA, BOX_DB, ROOT as _REPO_ROOT
+
+_REPLAY_DIR = _REPO_ROOT / "ai" / "ml" / "v2" / "replay"
 from ai.agent.agent import explain_event as agent_explain
 from ai.agent import templates as _alarm_templates
 from ai.ml.storm_job import run_storm_job
@@ -191,6 +195,14 @@ class BoxService:
         self._prev_storm_phase: str | None = None
         self._cur_storm_level:  str | None = None  # Pi-managed storm alarm level
 
+        # Replay
+        self._replay_buf:              deque             = deque(maxlen=28_800)
+        self._replay_task_handle:      asyncio.Task | None = None
+        self._pre_replay_pi_alarms:    list              = []   # wind/storm alarms saved at replay start
+        self._pre_replay_storm_state:  dict              = {}
+        self._pre_replay_storm_level:  str | None        = None
+        self._pre_replay_storm_phase:  str | None        = None
+
     def register_on_change(self, cb: OnChangeCb):
         """Register a coroutine called with the full state dict on every change."""
         self._cbs.append(cb)
@@ -217,12 +229,14 @@ class BoxService:
                 except Exception:
                     msg_ts = datetime.now(timezone.utc).isoformat()
                 self._handle_line(raw)
-                p    = self._state.readings["p"]
-                temp = self._state.readings["temp"]
-                if p is not None:
-                    self._state.readings["p_sl"] = _sea_level(p, temp, ALTITUDE_M, CAL_OFFSET_HPA)
-                    self._pressure_buf.append({"ts": msg_ts, "p": p, "temp": temp})
-                self._apply_wind_alarm(self._state.readings["wind"])
+                # During replay, pressure/wind/buffer are owned by the replay task.
+                if not self._state.replay["on"]:
+                    p    = self._state.readings["p"]
+                    temp = self._state.readings["temp"]
+                    if p is not None:
+                        self._state.readings["p_sl"] = _sea_level(p, temp, ALTITUDE_M, CAL_OFFSET_HPA)
+                        self._pressure_buf.append({"ts": msg_ts, "p": p, "temp": temp})
+                    self._apply_wind_alarm(self._state.readings["wind"])
                 await self._notify()
             except Exception as exc:
                 print(f"[service] read error: {exc}")
@@ -386,7 +400,7 @@ class BoxService:
                 alarm["explanation"] = tpl["say"]
             asyncio.create_task(self._explain_alarm_bg(event))
 
-    def _compute_storm_level(self, sea_level_hourly: list) -> str | None:
+    def _compute_storm_level(self, sea_level_hourly: list, buf: deque | None = None) -> str | None:
         """Two-signal storm alarm: whichever signal is worse wins.
 
         Signal 1 — 3-hour recorded-time window (handles replay):
@@ -408,7 +422,7 @@ class BoxService:
                 return "warn"
 
         # Signal 2
-        recent = list(self._pressure_buf)[-120:]
+        recent = list(buf if buf is not None else self._pressure_buf)[-120:]
         if len(recent) >= 5:
             vals = [r["p"] for r in recent if r.get("p") is not None]
             if vals:
@@ -447,6 +461,8 @@ class BoxService:
         """Call run_storm_job every 60 s in a thread and push the result into state.storm."""
         while self._running:
             await asyncio.sleep(60)
+            if self._state.replay["on"]:
+                continue   # replay has its own storm job cadence
             if not self._pressure_buf:
                 continue
             readings = list(self._pressure_buf)
@@ -498,6 +514,8 @@ class BoxService:
 
     def stop(self):
         self._running = False
+        if self._replay_task_handle:
+            self._replay_task_handle.cancel()
 
     # ------------------------------------------------------------------ API actions
 
@@ -513,3 +531,175 @@ class BoxService:
             except Exception as exc:
                 print(f"[service] ack error: {exc}")
         await self._notify()
+
+    # ------------------------------------------------------------------ replay
+
+    async def start_replay(self, filename: str):
+        """Begin a storm replay. Stops any in-progress replay first."""
+        if self._replay_task_handle and not self._replay_task_handle.done():
+            await self.stop_replay()
+
+        # Save Pi-managed alarm state so we can restore it after replay
+        self._pre_replay_pi_alarms   = [dict(a) for a in self._state.alarms
+                                         if a["id"] in ("wind", "storm")]
+        self._pre_replay_storm_state = dict(self._state.storm)
+        self._pre_replay_storm_level = self._cur_storm_level
+        self._pre_replay_storm_phase = self._prev_storm_phase
+
+        # Drop Pi-managed alarms; replay will build its own
+        self._state.alarms = [a for a in self._state.alarms
+                               if a["id"] not in ("wind", "storm")]
+        self._cur_storm_level  = None
+        self._prev_storm_phase = None
+        self._state.storm      = {"phase": None, "risk": None, "alert": None,
+                                   "reason": None, "path": None,
+                                   "model_version": None, "explanation": None}
+
+        self._replay_buf.clear()
+        self._state.replay = {"on": True, "file": filename, "progress": 0}
+        self._state.src    = "replay"
+        self._state._refresh_status_card()
+
+        if self._dev:
+            print(f"[service] -> replay on  file={filename}")
+        else:
+            try:
+                await self._source.write(json.dumps({"cmd": "replay", "on": True}).encode())
+            except Exception as exc:
+                print(f"[service] replay start write error: {exc}")
+
+        self._replay_task_handle = asyncio.create_task(self._replay_loop(filename))
+
+    async def stop_replay(self):
+        """Stop an in-progress replay. Safe to call when no replay is running."""
+        if self._replay_task_handle and not self._replay_task_handle.done():
+            self._replay_task_handle.cancel()
+            try:
+                await self._replay_task_handle
+            except asyncio.CancelledError:
+                pass
+        self._replay_task_handle = None
+        if self._state.replay["on"]:
+            await self._do_stop_replay()
+
+    async def _do_stop_replay(self):
+        """Shared teardown: restore live Pi-managed alarms and storm state."""
+        if not self._state.replay["on"]:
+            return   # idempotent
+        self._state.replay["on"] = False   # mark done immediately (prevents double calls)
+
+        # Remove any replay-created wind/storm alarms, restore pre-replay ones
+        self._state.alarms = [a for a in self._state.alarms
+                               if a["id"] not in ("wind", "storm")]
+        for saved in self._pre_replay_pi_alarms:
+            self._state.alarms.append(dict(saved))
+
+        # Restore live storm state so the home page snaps back to the last live result
+        self._state.storm.update(self._pre_replay_storm_state)
+        self._cur_storm_level  = self._pre_replay_storm_level
+        self._prev_storm_phase = self._pre_replay_storm_phase
+
+        self._state.replay = {"on": False, "file": None, "progress": 0}
+        self._state.src    = "live"
+        self._state._refresh_status_card()
+
+        if self._dev:
+            print("[service] -> replay off")
+        else:
+            try:
+                await self._source.write(json.dumps({"cmd": "replay", "on": False}).encode())
+            except Exception as exc:
+                print(f"[service] replay stop write error: {exc}")
+
+        await self._notify()
+
+    async def _replay_loop(self, filename: str):
+        """Stream one replay CSV row every 0.25 s, injecting pressure + wind into state."""
+        filepath = _REPLAY_DIR / filename
+        with open(filepath, newline="") as fh:
+            rows = list(csv.DictReader(fh))
+        total = len(rows)
+
+        for idx, row in enumerate(rows):
+            if not self._running:
+                break
+
+            ts      = row["ts"]
+            p       = float(row["pressure_hpa"])
+            wind_ms = float(row["wind_ms"])  if row.get("wind_ms")  else 0.0
+            gust_ms = float(row["gust_ms"])  if row.get("gust_ms")  else None
+            wind_mph = round(wind_ms * 2.237, 1)
+            temp     = self._state.readings["temp"]   # live temp for sea-level calc
+
+            # Inject replay pressure + wind into state
+            self._state.readings["p"]    = p
+            self._state.readings["wind"] = wind_mph
+            self._state.readings["p_sl"] = _sea_level(p, temp, ALTITUDE_M, CAL_OFFSET_HPA)
+            self._state.src = "replay"
+
+            # Append to the separate replay pressure buffer with the RECORDED timestamp
+            entry = {"ts": ts, "p": p, "temp": temp, "wind_ms": wind_ms}
+            if gust_ms is not None:
+                entry["gust_ms"] = gust_ms
+            self._replay_buf.append(entry)
+
+            # Forward to ESP32 (ignored for now; EE will wire it up)
+            rp: dict = {"cmd": "rp", "p": p, "ts": ts}
+            if wind_ms:
+                rp["wind"] = wind_ms
+            if gust_ms is not None:
+                rp["gust"] = gust_ms
+            if self._dev:
+                print(f"[service] -> rp p={p} wind_ms={wind_ms} ts={ts}")
+            else:
+                try:
+                    await self._source.write(json.dumps(rp).encode())
+                except Exception as exc:
+                    print(f"[service] rp write error: {exc}")
+
+            # Pi-side alarms driven by replayed values
+            self._apply_wind_alarm(wind_mph)
+
+            # Storm job every 6 rows (= 1 simulated hour of storm data)
+            if (idx + 1) % 6 == 0:
+                await self._run_replay_storm_job()
+
+            self._state.replay["progress"] = round((idx + 1) / total * 100)
+            await self._notify()
+            await asyncio.sleep(0.25)
+
+        # End of file: clean up just like a manual stop
+        self._replay_task_handle = None   # clear own handle before calling cleanup
+        await self._do_stop_replay()
+
+    async def _run_replay_storm_job(self):
+        """Run the storm risk model on the replay buffer and update state.storm."""
+        if not self._replay_buf:
+            return
+        readings = list(self._replay_buf)
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(
+                None, lambda: run_storm_job(readings, source="replay")
+            )
+            if result.get("status") == "ok":
+                hourly    = result.get("sea_level_hourly") or []
+                new_phase = _storm_phase(hourly)
+                self._state.storm.update({
+                    "phase":         new_phase,
+                    "risk":          result["risk"],
+                    "alert":         result.get("alert"),
+                    "reason":        result.get("reason"),
+                    "path":          result.get("path"),
+                    "model_version": result.get("model_version"),
+                })
+                if new_phase and new_phase != self._prev_storm_phase:
+                    asyncio.create_task(self._explain_phase_bg(new_phase))
+                self._prev_storm_phase = new_phase
+            else:
+                hourly = []
+                self._state.storm["phase"] = None
+                self._prev_storm_phase     = None
+            self._apply_storm_alarm(self._compute_storm_level(hourly, buf=self._replay_buf))
+        except Exception as exc:
+            print(f"[service] replay storm job error: {exc}")

@@ -89,16 +89,19 @@ class BoxState:
     def apply_reading(self, msg: dict):
         """Handle a §5 't':'r' reading line."""
         self.ts = _now()
-        self.src = msg.get("src", "live")
+        # During replay, pressure and wind come from the replay task; leave them and src alone.
+        if not self.replay["on"]:
+            self.src    = msg.get("src", "live")
+            r           = self.readings
+            r["p"]      = msg.get("p")
+            wind_ms     = msg.get("wind")
+            r["wind"]   = round(wind_ms * 2.237, 1) if wind_ms is not None else None
 
         r = self.readings
-        r["p"]     = msg.get("p")
         r["temp"]  = msg.get("temp")
         r["hum"]   = msg.get("hum")
         r["water"] = msg.get("water")
         r["rain"]  = msg.get("rain")
-        wind_ms    = msg.get("wind")
-        r["wind"]  = round(wind_ms * 2.237, 1) if wind_ms is not None else None
 
         # Translate ESP32 alarm IDs and keep only ESP32-managed alarms (flood, heat).
         # Wind and storm are never in the ESP32's list; the Pi computes them.

@@ -36,8 +36,10 @@ from ai.agent.api import router as agent_router
 from ai.agent import tools as agent_tools
 from ai.agent import agent as agent_module
 
-STATIC_DIR = Path(__file__).parent / "static"
-_DB_PATH   = _REPO_ROOT / "data" / "box.db"
+STATIC_DIR    = Path(__file__).parent / "static"
+_DB_PATH      = _REPO_ROOT / "data" / "box.db"
+_REPLAY_INDEX = _REPO_ROOT / "ai" / "ml" / "v2" / "replay" / "index.json"
+_REPLAY_DIR   = _REPLAY_INDEX.parent
 
 
 def _ensure_db():
@@ -191,6 +193,9 @@ class TriggerBody(BaseModel):
 
 _VALID_EVENTS = {"flood", "wind", "storm", "heat", "short", "long", "clear"}
 
+class ReplayStartBody(BaseModel):
+    file: str
+
 @app.post("/api/dev/trigger")
 async def post_trigger(body: TriggerBody):
     if not (_state and _state.dev):
@@ -202,6 +207,31 @@ async def post_trigger(body: TriggerBody):
         )
     _fake.trigger(body.event)
     return {"ok": True, "event": body.event}
+
+
+# ------------------------------------------------------------------ replay
+
+@app.get("/api/replay/list")
+async def get_replay_list():
+    if not _REPLAY_INDEX.exists():
+        return []
+    with open(_REPLAY_INDEX) as fh:
+        return json.load(fh)
+
+
+@app.post("/api/replay/start")
+async def post_replay_start(body: ReplayStartBody):
+    filepath = _REPLAY_DIR / body.file
+    if filepath.suffix != ".csv" or not filepath.exists():
+        return JSONResponse({"error": f"unknown replay file: {body.file!r}"}, status_code=400)
+    await _service.start_replay(body.file)
+    return {"ok": True, "file": body.file}
+
+
+@app.post("/api/replay/stop")
+async def post_replay_stop():
+    await _service.stop_replay()
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ static files

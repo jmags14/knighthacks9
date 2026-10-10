@@ -31,7 +31,7 @@
       flex-direction: column;
       max-width: 480px;
       margin: 0 auto;
-      padding: 0 1rem 5rem;
+      padding: 0 1rem calc(4rem + env(safe-area-inset-bottom));
       min-height: 100dvh;
     }
 
@@ -190,22 +190,17 @@
       padding: 1.25rem 1.75rem;
     }
 
-    /* ── Info rows (power + storm) ── */
-    .info-rows {
-      border-top: 1px solid #222;
-      border-bottom: 1px solid #222;
-      margin-bottom: 1.5rem;
-    }
-    .info-row {
+    /* ── Storm strip (compact one-liner under the status card) ── */
+    .storm-strip {
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      font-size: 0.9rem;
-      padding: 0.55rem 0;
+      font-size: 0.85rem;
+      padding: 0.35rem 0.25rem;
+      margin-bottom: 0.75rem;
     }
-    .info-row + .info-row { border-top: 1px solid #222; }
-    .info-row.amber { color: #ff9800; }
-    .info-row.muted { color: var(--muted); }
+    .storm-strip.amber { color: #ff9800; }
+    .storm-strip.muted { color: var(--muted); }
 
     /* ── Alarm explanation strip ── */
     .explanation-strip {
@@ -260,13 +255,12 @@
     <div class="card-silenced" id="card-silenced" style="display:none">Alarm silenced</div>
   </div>
 
+  <div class="storm-strip muted" id="storm-row"></div>
+
   <div class="explanation-strip" id="explanation-strip" style="display:none"></div>
   <button class="silence-btn" id="silence-btn">Silence alarm</button>
   <div class="alarm-tags" id="alarm-tags"></div>
   <div class="readings-grid" id="readings-grid"></div>
-  <div class="info-rows">
-    <div class="info-row" id="storm-row"></div>
-  </div>
 
   <nav class="nav-bar">
     <a href="index.html" class="nav-tab active">
@@ -410,7 +404,7 @@
     function renderStormRow(state) {
       var storm = state.storm || {};
       if (storm.phase == null && storm.risk == null) {
-        stormRow.className   = "info-row muted";
+        stormRow.className   = "storm-strip muted";
         stormRow.textContent = "Storm model: waiting for data";
         return;
       }
@@ -422,7 +416,7 @@
         var pct = storm.risk > 1 ? Math.round(storm.risk) : Math.round(storm.risk * 100);
         parts.push("Risk " + pct + "%");
       }
-      stormRow.className   = "info-row";
+      stormRow.className   = "storm-strip";
       stormRow.textContent = "Storm: " + parts.join(" · ");
     }
 
@@ -449,7 +443,7 @@
         explanationStrip.style.display = "none";
         alarmTags.innerHTML      = "";
         readingsGrid.innerHTML = "";
-        stormRow.innerHTML     = "";
+        stormRow.textContent   = "";
         return;
       }
 
