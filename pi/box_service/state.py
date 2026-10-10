@@ -19,12 +19,6 @@ class BoxState:
 
         self.readings = {"p": None, "p_sl": None, "temp": None, "hum": None, "water": None, "rain": None, "wind": None}
 
-        self.power = {
-            "wall": True,
-            "battery_hours": None,
-            "outage_since": None,  # ISO timestamp set when wall power is lost
-        }
-
         # Each alarm: {"id": str, "level": "warn"|"alarm", "since": ISO, "acked": bool}
         self.alarms: list[dict] = []
 
@@ -76,13 +70,21 @@ class BoxState:
             else:
                 self.status_card = {"title": "High winds", "action": "Stay away from windows"}
         elif aid == "storm":
-            self.status_card = {"title": "Storm warning", "action": "Stay indoors, monitor pressure"}
+            if lvl == "alarm":
+                self.status_card = {"title": "Severe storm", "action": "Stay indoors, monitor pressure"}
+            else:
+                self.status_card = {"title": "Storm warning", "action": "Stay indoors, monitor pressure"}
         elif aid == "heat":
             self.status_card = {"title": "Heat warning", "action": "Stay hydrated, find shade"}
         else:
             self.status_card = {"title": "Alert active", "action": "Check sensor readings"}
 
     # ------------------------------------------------------------------ message handlers
+
+    # Map ESP32 alarm IDs to internal IDs
+    _ALARM_ID_MAP  = {"water": "flood", "temp": "heat"}
+    # Only these two are owned by the ESP32; wind and storm are Pi-computed.
+    _ESP32_MANAGED = frozenset({"flood", "heat"})
 
     def apply_reading(self, msg: dict):
         """Handle a §5 't':'r' reading line."""
@@ -95,18 +97,25 @@ class BoxState:
         r["hum"]   = msg.get("hum")
         r["water"] = msg.get("water")
         r["rain"]  = msg.get("rain")
-        r["wind"]  = msg.get("wind")
+        wind_ms    = msg.get("wind")
+        r["wind"]  = round(wind_ms * 2.237, 1) if wind_ms is not None else None
 
-        wall = bool(msg.get("wall", 1))
-        if wall != self.power["wall"]:
-            # Transition: wall power just came back or just went out
-            self.power["outage_since"] = None if wall else _now()
-        self.power["wall"] = wall
+        # Translate ESP32 alarm IDs and keep only ESP32-managed alarms (flood, heat).
+        # Wind and storm are never in the ESP32's list; the Pi computes them.
+        current_ids = {
+            self._ALARM_ID_MAP.get(aid, aid)
+            for aid in msg.get("alarms", [])
+            if self._ALARM_ID_MAP.get(aid, aid) in self._ESP32_MANAGED
+        }
 
-        # Add any alarms the ESP32 lists that we haven't seen an event for yet
-        for aid in msg.get("alarms", []):
+        # Add any ESP32-managed alarms now active that we haven't seen yet
+        for aid in current_ids:
             if not self._find_alarm(aid):
                 self.alarms.append({"id": aid, "level": "alarm", "since": _now(), "acked": False, "explanation": None})
+
+        # Auto-clear only ESP32-managed alarms absent from this reading
+        self.alarms = [a for a in self.alarms
+                       if a["id"] not in self._ESP32_MANAGED or a["id"] in current_ids]
 
         self._refresh_status_card()
 
@@ -141,7 +150,6 @@ class BoxState:
             "src":         self.src,
             "dev":         self.dev,
             "readings":    dict(self.readings),
-            "power":       dict(self.power),
             "alarms":      list(self.alarms),   # dicts are already JSON-safe
             "storm":       dict(self.storm),
             "status_card": dict(self.status_card),

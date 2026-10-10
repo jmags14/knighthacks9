@@ -34,7 +34,6 @@ class FakeESP32:
         self._water = self._BASE_WATER
         self._rain  = self._BASE_RAIN
         self._wind  = self._BASE_WIND
-        self._wall  = 1        # 1 = on wall power, 0 = battery only
         self._ms    = 0        # simulated uptime ms
 
         self._alarms: set[str] = set()
@@ -68,8 +67,7 @@ class FakeESP32:
             "hum":    round(self._hum, 1),
             "water":  self._water,
             "rain":   round(self._rain, 3),
-            "wind":   round(self._wind, 1),
-            "wall":   self._wall,
+            "wind":   round(self._wind / 2.237, 2),   # internal mph → m/s (matches real ESP32)
             "src":    "live",
             "alarms": sorted(self._alarms),
         }
@@ -96,11 +94,11 @@ class FakeESP32:
                 self._put(self._alarm_event("flood", "alarm", "off"))
 
         elif event == "wind":
-            # Ramp wind from current speed to ~80 mph over ~20 s.
-            # warn fires at 39 mph (~8 s in), alarm at 74 mph (~18 s in).
+            # Ramp wind to ~130 mph over ~25 s (5 mph/s).
+            # warn fires at 39 mph (~6 s in), alarm at 74 mph (~13 s in).
             if not self._wind_ramping:
                 self._wind_ramping     = True
-                self._wind_ramp_target = 80.0
+                self._wind_ramp_target = 130.0
 
         elif event == "storm":
             # Pressure drops at 0.2 hPa/s; storm alarm fires after ~30 s (≥ 6 hPa drop).
@@ -123,9 +121,6 @@ class FakeESP32:
                 self._alarms.discard("heat")
                 self._put(self._alarm_event("heat", "alarm", "off"))
 
-        elif event == "power":
-            self._wall = 0 if self._wall == 1 else 1
-
         elif event == "short":
             self._put({"t": "btn", "press": "short"})
 
@@ -144,7 +139,6 @@ class FakeESP32:
             self._water = self._BASE_WATER
             self._rain  = self._BASE_RAIN
             self._wind  = self._BASE_WIND
-            self._wall  = 1
             self._wind_alarm_level = ""
 
     # ------------------------------------------------------------------ async interface
@@ -175,11 +169,11 @@ class FakeESP32:
                 self._alarms.add("storm")
                 self._put(self._alarm_event("storm", "alarm", "on"))
         else:
-            self._p += random.uniform(-0.05, 0.05)
+            self._p += random.uniform(-0.3, 0.3)
 
         # --- temperature ---
         if not self._heat_on:
-            self._temp = max(20.0, min(45.0, self._temp + random.uniform(-0.1, 0.1)))
+            self._temp = max(20.0, min(45.0, self._temp + random.uniform(-0.2, 0.2)))
 
         # --- humidity (70-90% normally; rises toward 95% during storm) ---
         if not self._heat_on:
@@ -192,18 +186,17 @@ class FakeESP32:
         if not self._flood_on:
             self._water = max(50, min(200, self._water + random.randint(-5, 5)))
 
-        # --- rain (inches; accumulates during storm, otherwise drains slowly) ---
+        # --- rain (inches; accumulates during storm, otherwise random walk with floor) ---
         if self._storm_dropping:
             self._rain = round(min(1.5, self._rain + 0.005), 3)
         else:
-            self._rain = max(0.0, round(self._rain - 0.001, 3))
+            self._rain = round(max(0.0, self._rain + random.uniform(-0.003, 0.003)), 3)
 
         # --- wind ---
         if self._wind_ramping:
-            # Ramp at ~4 mph/s until target (~80 mph) is reached
-            self._wind = min(self._wind_ramp_target, self._wind + 4.0)
-            if self._wind >= self._wind_ramp_target:
-                self._wind_ramping = False
+            # min() caps at target; leave _wind_ramping True so the else branch
+            # never runs and wind holds at target until Clear is pressed.
+            self._wind = min(self._wind_ramp_target, self._wind + 5.0)
         elif self._storm_dropping:
             # Storm: gradually reach ~55 mph
             if self._wind < 55.0:
@@ -266,13 +259,12 @@ async def run_standalone():
 
     event_map = {
         "f": "flood", "w": "wind",  "s": "storm",
-        "h": "heat",  "p": "power", "b": "short",
-        "l": "long",  "c": "clear",
+        "h": "heat",  "b": "short", "l": "long",
+        "c": "clear",
     }
 
     print(
-        "Controls: f=flood  w=wind  s=storm  h=heat  "
-        "p=power  b=short  l=long  c=clear",
+        "Controls: f=flood  w=wind  s=storm  h=heat  b=short  l=long  c=clear",
         file=sys.stderr, flush=True,
     )
 

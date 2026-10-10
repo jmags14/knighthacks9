@@ -189,7 +189,7 @@ async def post_ack(body: AckBody):
 class TriggerBody(BaseModel):
     event: str
 
-_VALID_EVENTS = {"flood", "wind", "storm", "heat", "power", "short", "long", "clear"}
+_VALID_EVENTS = {"flood", "wind", "storm", "heat", "short", "long", "clear"}
 
 @app.post("/api/dev/trigger")
 async def post_trigger(body: TriggerBody):
