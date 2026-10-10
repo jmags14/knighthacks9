@@ -35,6 +35,13 @@ INTENTS = [
      r"|\bhow long (has|have|was|were|is).{0,20}(power|electricity|outage)\b"
      r"|\boutage (log|history|duration)\b|\bare we on (battery|wall power)\b",
      ["get_outages"], None),
+    # Heat index from the INSIDE temperature and humidity. Questions about heat illness, food, pets etc.
+    # are guide questions, not sensor questions.
+    ("heat_index",
+     r"\bhow hot\b|\bfeels? like\b|\bheat index\b",
+     ["get_sensors"],
+     r"\b(someone|somebody|person|child|kid|baby|patient|stroke|exhaustion|cramps|symptoms?|signs?"
+     r"|food|fridge|freezer|oven|water|car|pets?|dog|cat|insulin|medicine)\b"),
     # "What's the weather like outside?" The box only measures INSIDE the house, so the answer says so.
     ("weather",
      r"\bweather\b|\bconditions\b|\bhow('s| is| are) (it|things) (looking|going|out)\b"

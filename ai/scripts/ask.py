@@ -8,7 +8,7 @@ After every answer it prints how the agent got there: route, tools, guide chunks
 sources, canned score, and timings per step.
 
 Commands inside the chat:
-    /state calm|storm|flood|eye|outage|replay   switch the fake box state
+    /state calm|storm|flood|eye|outage|replay|hot  switch the fake box state
     /event flood|heat|storm|severe|wind|windalarm|eye|recovering|power   fire a proactive message
     /show                                        print the current fake state
     /quit
@@ -44,6 +44,8 @@ def make_state(name):
                              reason="Storm risk 98% because pressure now is 996.0 hPa (at or below 1007.6).")
     elif name == "flood":
         base.update(water=640, alarms=[{"id": "flood", "level": "alarm", "since": base["ts"]}])
+    elif name == "hot":         # AC off: 92 F inside at 70% humidity
+        base.update(temp_c=33.3, humidity=70, wall_power=0)
     elif name == "eye":
         base.update(source="replay", pressure_hpa=975.0, wind_mph=8)
         base["storm"].update(phase="possible_eye", risk=0.98, alert=True,
@@ -123,7 +125,7 @@ def handle_command(line):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--state", default="calm", help="calm|storm|flood|eye|outage|replay")
+    ap.add_argument("--state", default="calm", help="calm|storm|flood|eye|outage|replay|hot")
     ap.add_argument("-q", action="append", help="ask this question and exit (repeatable)")
     args = ap.parse_args()
     if hasattr(sys.stdout, "reconfigure"):

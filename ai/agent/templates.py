@@ -4,6 +4,8 @@ No LLM in here. EE 1 and CS 1 can read the exact LCD strings in P0 below.
 LCD rule: every line is at most 16 characters (the Grove LCD is 16x2).
 """
 
+from ai.agent import heat
+
 LCD_WIDTH = 16
 
 # ---------------------------------------------------------------- P0: proactive (AGENT_PLAN 5.1)
@@ -111,6 +113,10 @@ def p0(event, source="live", state=None):
     wind = (state or {}).get("wind_mph")
     if "say_live" in entry and wind is not None:
         say = entry["say_live"].format(w=f"{wind:.0f}")
+    if key == "heat":       # add what it feels like inside, when the box has a reading that is actually hot
+        info = heat.heat_info((state or {}).get("temp_c"), (state or {}).get("humidity"))
+        if info and info["feels_like"]:
+            say = say.replace("inside.", f"inside. It {heat.feels_like_phrase(info)}.", 1)
     lcd = replay_lcd(entry["lcd"]) if source == "replay" else entry["lcd"]
     return {"say": replay_say(say, source), "lcd": lcd, "key": key}
 
@@ -217,6 +223,32 @@ PRESSURE_MEANING = {
 }
 
 
+def _feels_like_sentence(s):
+    """' It feels like 100 degrees, extreme caution level.' when the heat index is 80 F or more, else ''.
+    Without a humidity reading it says so, because then it is the temperature alone."""
+    info = heat.heat_info(s.get("temp_c"), s.get("humidity"))
+    if not info or not info["feels_like"]:
+        return ""
+    note = "" if info["humidity_measured"] else " (humidity not measured)"
+    return f" It {heat.feels_like_phrase(info)}{note}."
+
+
+def heat_index_text(s, source="live"):
+    """'How hot does it feel?' / 'What's the heat index?' Indoor readings, so it says 'inside'."""
+    info = heat.heat_info(s.get("temp_c"), s.get("humidity"))
+    if not info:
+        return "I don't have a temperature reading yet."
+    t = info["temp_f"]
+    if not info["feels_like"]:
+        text = (f"Inside it's {t} degrees Fahrenheit, so the heat index is not a concern right now."
+                + ("" if info["humidity_measured"] else " Humidity not measured."))
+    else:
+        note = "" if info["humidity_measured"] else " Humidity not measured, so this is the temperature alone."
+        text = (f"Inside it's {t} degrees Fahrenheit but {heat.feels_like_phrase(info)}.{note} "
+                "Those are indoor readings, and they are what matters when the air conditioning is off.")
+    return replay_say(text, source)
+
+
 def weather_text(s, storm, source="live", focus=None):
     """'What's the weather like outside?' / 'Is it windy?' Answered fully offline, never by sending people
     to a forecast. Every number is kept. With a focus (wind, rain, pressure, temperature) that part comes
@@ -241,7 +273,7 @@ def weather_text(s, storm, source="live", focus=None):
         inside = f"Inside the house it's {s['temp_c']:.0f} degrees Celsius, {s['temp_c'] * 9 / 5 + 32:.0f} Fahrenheit"
         if s.get("humidity") is not None:
             inside += f", with {s['humidity']:.0f} percent humidity"
-        sections["temperature"] = inside + "."
+        sections["temperature"] = inside + "." + _feels_like_sentence(s)
     risk = storm.get("risk")
     sections["risk"] = ("Storm risk is still warming up." if risk is None
                         else f"Storm risk score is {round(100 * risk)} percent.")
@@ -265,6 +297,9 @@ def sensors_text(s, source="live"):
         parts.append(f"temperature {s['temp_c']:.0f} C, {s['temp_c'] * 9 / 5 + 32:.0f} F")
     if s.get("humidity") is not None:
         parts.append(f"humidity {s['humidity']:.0f} percent")
+    info = heat.heat_info(s.get("temp_c"), s.get("humidity"))
+    if info and info["feels_like"]:
+        parts.append(heat.feels_like_phrase(info))
     if s.get("wind_mph") is not None:
         parts.append(f"wind {s['wind_mph']:.0f} miles per hour")
     if s.get("rain_in") is not None:

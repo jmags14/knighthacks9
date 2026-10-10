@@ -76,6 +76,8 @@ def _tool_answer(intent, results, state, focus=None):
         return templates.battery_text(results["get_battery"])
     if intent == "outage":
         return templates.outage_text(results["get_outages"])
+    if intent == "heat_index":
+        return templates.heat_index_text(results["get_sensors"], source)
     if intent == "weather":
         return templates.weather_text(results["get_sensors"], results["get_storm_status"], source, focus)
     if intent == "sensors":
