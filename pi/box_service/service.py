@@ -16,16 +16,29 @@ from .state import BoxState
 # ------------------------------------------------------------------ internet check
 
 async def check_internet() -> bool:
-    """Non-blocking TCP probe to 1.1.1.1:53. Returns True if reachable."""
+    """
+    Try three TCP probes in parallel; reachable if any one succeeds.
+    Port 53 (DNS) is blocked on some campus/corporate networks, so we also
+    try port 443 (HTTPS) on two hosts as fallbacks.
+    """
     loop = asyncio.get_event_loop()
-    try:
-        await asyncio.wait_for(
-            loop.run_in_executor(None, _tcp_probe, "1.1.1.1", 53),
-            timeout=1.0,
-        )
-        return True
-    except Exception:
-        return False
+
+    async def _probe(host: str, port: int) -> bool:
+        try:
+            await asyncio.wait_for(
+                loop.run_in_executor(None, _tcp_probe, host, port),
+                timeout=1.0,
+            )
+            return True
+        except Exception:
+            return False
+
+    results = await asyncio.gather(
+        _probe("1.1.1.1", 53),
+        _probe("1.1.1.1", 443),
+        _probe("8.8.8.8", 443),
+    )
+    return any(results)
 
 
 def _tcp_probe(host: str, port: int):
@@ -156,8 +169,8 @@ class BoxService:
 
     async def start(self):
         self._running = True
-        # Run the initial internet check before the loop starts
         self._state.health["internet"] = await check_internet()
+        await self._notify()   # push corrected internet state before loops begin
         await asyncio.gather(
             self._read_loop(),
             self._heartbeat_loop(),

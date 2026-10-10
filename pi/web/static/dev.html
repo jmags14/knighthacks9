@@ -67,7 +67,85 @@
     }
     .btn-ack:hover { background: #c62828; }
 
-    /* JSON dump */
+    /* Alarm table */
+    .alarm-note {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.6rem;
+    }
+    .alarm-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin-bottom: 0.75rem;
+    }
+    .alarm-table th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 500;
+      padding: 0.25rem 0.5rem 0.4rem 0;
+      border-bottom: 1px solid #333;
+    }
+    .alarm-table td {
+      padding: 0.4rem 0.5rem 0.4rem 0;
+      border-bottom: 1px solid #222;
+      vertical-align: middle;
+    }
+    .alarm-table tr:last-child td { border-bottom: none; }
+    .level-alarm { color: var(--red);   font-weight: 600; }
+    .level-warn  { color: var(--amber); font-weight: 600; }
+    .silenced    { color: var(--muted); font-style: italic; }
+
+    /* Sensor tiles */
+    .tiles {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .tile {
+      background: var(--surface);
+      border-radius: 6px;
+      padding: 0.6rem 0.75rem;
+    }
+    .tile-label {
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.2rem;
+    }
+    .tile-value { font-size: 1.1rem; font-weight: 700; }
+    .tile-sub   { font-size: 0.7rem; color: var(--muted); margin-top: 0.15rem; }
+    .trend-up   { color: var(--blue);  }
+    .trend-down { color: var(--amber); }
+    .trend-flat { color: var(--muted); }
+    .wet { color: var(--red);   }
+    .dry { color: var(--green); }
+
+    /* System status pills */
+    .status-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
+    .pill {
+      font-size: 0.8rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+      border: 1px solid #333;
+    }
+    .pill-on   { color: var(--green); border-color: #2e7d32; }
+    .pill-off  { color: var(--red);   border-color: #b71c1c; }
+    .pill-info { color: var(--muted); border-color: #333;    }
+
+    /* Collapsed raw JSON */
+    details { margin-top: 0.5rem; }
+    details summary {
+      font-size: 0.85rem;
+      color: var(--muted);
+      cursor: pointer;
+      margin-bottom: 0.4rem;
+      user-select: none;
+    }
+    details summary:hover { color: var(--text); }
+
     pre {
       background: var(--surface);
       border-radius: 6px;
@@ -108,13 +186,20 @@
     </div>
 
     <h2>Active alarms</h2>
-    <div class="btn-row" id="alarm-acks">
-      <span style="color:var(--muted)">none</span>
-    </div>
+    <p class="alarm-note">The card shows the most serious alarm. All active alarms are listed below.</p>
+    <div id="alarm-table-wrap"></div>
   </div>
 
-  <h2>Live state</h2>
-  <pre id="state-json">connecting…</pre>
+  <h2>Sensors</h2>
+  <div class="tiles" id="tiles"><span style="color:var(--muted)">—</span></div>
+
+  <h2>System</h2>
+  <div class="status-row" id="status-row"><span style="color:var(--muted)">—</span></div>
+
+  <details>
+    <summary>Raw state (debug)</summary>
+    <pre id="state-json">connecting…</pre>
+  </details>
 
   <script src="js/state.js"></script>
   <script>
@@ -138,22 +223,157 @@
         renderAlarms(state.alarms || []);
       }
 
+      renderSensors(state);
+      renderStatus(state);
+
       // Raw state dump
       document.getElementById("state-json").textContent =
         JSON.stringify(state, null, 2);
     });
 
+    // Latest alarms array from the server, kept for the per-second timer
+    var _alarms = [];
+
+    // ── Sensor tiles ──────────────────────────────────────────────────────
+    var _pressureHistory = [];
+
+    function renderSensors(state) {
+      var r = state.readings || {};
+
+      if (r.p != null) {
+        _pressureHistory.push(r.p);
+        if (_pressureHistory.length > 5) _pressureHistory.shift();
+      }
+
+      var trend = "";
+      if (_pressureHistory.length >= 2) {
+        var diff = _pressureHistory[_pressureHistory.length - 1] - _pressureHistory[0];
+        if      (diff >  0.1) trend = ' <span class="trend-up">↑</span>';
+        else if (diff < -0.1) trend = ' <span class="trend-down">↓</span>';
+        else                  trend = ' <span class="trend-flat">→</span>';
+      }
+
+      var tempC   = r.temp != null ? r.temp : null;
+      var tempF   = tempC  != null ? Math.round(tempC * 9 / 5 + 32) : null;
+      var tempStr = tempC  != null ? tempF + "°F / " + tempC.toFixed(1) + "°C" : "—";
+
+      var floodOn    = (state.alarms || []).some(function (a) { return a.id === "flood" && !a.acked; });
+      var floorClass = floodOn ? "wet" : "dry";
+      var floorLabel = floodOn ? "Wet" : "Dry";
+
+      function v(x, dp) { return x != null ? x.toFixed(dp) : "—"; }
+
+      function tile(label, valueHtml, sub) {
+        return "<div class='tile'>"
+          + "<div class='tile-label'>" + label + "</div>"
+          + "<div class='tile-value'>" + valueHtml + "</div>"
+          + (sub != null ? "<div class='tile-sub'>" + sub + "</div>" : "")
+          + "</div>";
+      }
+
+      document.getElementById("tiles").innerHTML = [
+        tile("Pressure (hPa)", v(r.p, 1) + trend),
+        tile("Wind (mph)",     v(r.wind, 1)),
+        tile("Rain (in)",      v(r.rain, 3)),
+        tile("Temperature",    tempStr),
+        tile("Humidity (%)",   r.hum  != null ? v(r.hum, 1) + "%" : "—"),
+        tile("Floor",
+             "<span class='" + floorClass + "'>" + floorLabel + "</span>",
+             r.water != null ? "sensor: " + r.water : ""),
+      ].join("");
+    }
+
+    // ── System status pills ───────────────────────────────────────────────
+
+    function renderStatus(state) {
+      var power  = state.power  || {};
+      var health = state.health || {};
+
+      var wallHtml;
+      if (power.wall) {
+        wallHtml = "<span class='pill pill-on'>Wall power ON</span>";
+      } else {
+        var since = "";
+        if (power.outage_since) {
+          var d = new Date(power.outage_since);
+          var hh = d.getHours();
+          var mm = d.getMinutes() < 10 ? "0" + d.getMinutes() : d.getMinutes();
+          since = " · battery since " + hh + ":" + mm;
+        }
+        wallHtml = "<span class='pill pill-off'>Wall power OFF" + since + "</span>";
+      }
+
+      var esp32Html = health.esp32_link
+        ? "<span class='pill pill-on'>ESP32 connected</span>"
+        : "<span class='pill pill-off'>ESP32 lost</span>";
+
+      var netHtml = health.internet
+        ? "<span class='pill pill-info'>Internet reachable</span>"
+        : "<span class='pill pill-info'>Internet unreachable</span>";
+
+      document.getElementById("status-row").innerHTML = wallHtml + esp32Html + netHtml;
+    }
+
     function renderAlarms(alarms) {
-      var active = alarms.filter(function (a) { return !a.acked; });
-      var row = document.getElementById("alarm-acks");
-      if (!active.length) {
-        row.innerHTML = '<span style="color:var(--muted)">none</span>';
+      _alarms = alarms;
+      _drawAlarmTable();
+    }
+
+    function _drawAlarmTable() {
+      var wrap = document.getElementById("alarm-table-wrap");
+      if (!_alarms.length) {
+        wrap.innerHTML = '<span style="color:var(--muted)">None</span>';
         return;
       }
-      row.innerHTML = active.map(function (a) {
-        return '<button class="btn-ack" onclick="ack(\'' + a.id + '\')">Ack: ' + a.id + ' (' + a.level + ')</button>';
+
+      var PRIORITY = {
+        "flood:alarm": 0, "wind:alarm": 1, "storm:alarm": 2, "heat:alarm": 3,
+        "flood:warn":  4, "wind:warn":  5, "storm:warn":  6, "heat:warn":  7,
+      };
+      var sorted = _alarms.slice().sort(function (a, b) {
+        var ka = PRIORITY[a.id + ":" + a.level];
+        var kb = PRIORITY[b.id + ":" + b.level];
+        if (ka === undefined) ka = 99;
+        if (kb === undefined) kb = 99;
+        return ka - kb;
+      });
+
+      var now = Date.now();
+
+      var rows = sorted.map(function (a) {
+        var elapsed = a.since ? Math.floor((now - Date.parse(a.since)) / 1000) : 0;
+        var mins    = Math.floor(elapsed / 60);
+        var secs    = elapsed % 60;
+        var duration = mins + ":" + (secs < 10 ? "0" : "") + secs;
+
+        var levelLabel = a.level === "alarm" ? "Alarm" : "Warning";
+        var levelClass = a.level === "alarm" ? "level-alarm" : "level-warn";
+        var silenced   = a.acked
+          ? '<span class="silenced">Yes</span>'
+          : "No";
+        var ackBtn = a.acked
+          ? ""
+          : '<button class="btn-ack" onclick="ack(\'' + a.id + '\')">Ack</button>';
+
+        return "<tr>"
+          + "<td>" + a.id + "</td>"
+          + "<td class='" + levelClass + "'>" + levelLabel + "</td>"
+          + "<td>" + duration + "</td>"
+          + "<td>" + silenced + "</td>"
+          + "<td>" + ackBtn + "</td>"
+          + "</tr>";
       }).join("");
+
+      wrap.innerHTML = "<table class='alarm-table'>"
+        + "<thead><tr>"
+        + "<th>Alarm</th><th>Level</th><th>Active for</th><th>Silenced</th><th></th>"
+        + "</tr></thead>"
+        + "<tbody>" + rows + "</tbody>"
+        + "</table>";
     }
+
+    // Tick the "Active for" timers every second without waiting for a WS message
+    setInterval(_drawAlarmTable, 1000);
 
     async function trigger(event) {
       try {
