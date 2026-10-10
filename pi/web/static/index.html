@@ -160,6 +160,40 @@
     .alarm-tag.alarm { color: #ff8a80; border-color: #ff8a80; }
     .alarm-tag.warn  { color: #ffb74d; border-color: #ffb74d; }
     .alarm-tag.acked { opacity: 0.45; }
+
+    /* ── Readings grid ── */
+    .readings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .reading-tile {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 0.85rem 1rem;
+      border: 2px solid transparent;
+      transition: border-color 0.3s;
+    }
+    .tile-label {
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 0.3rem;
+    }
+    .tile-value {
+      font-size: 1.75rem;
+      font-weight: 800;
+      line-height: 1.1;
+    }
+    .reading-tile.tile-alarm { border-color: #f44336; }
+    .reading-tile.tile-warn  { border-color: #ff9800; }
+    .floor-wet  { color: #f44336; }
+    .floor-dry  { color: #4caf50; }
+    .trend-up   { color: #64b5f6; }
+    .trend-down { color: #ff9800; }
+    .trend-flat { color: var(--muted); }
   </style>
 </head>
 <body>
@@ -178,6 +212,7 @@
 
   <button class="silence-btn" id="silence-btn">Silence alarm</button>
   <div class="alarm-tags" id="alarm-tags"></div>
+  <div class="readings-grid" id="readings-grid"></div>
 
   <script src="js/state.js"></script>
   <script>
@@ -188,6 +223,7 @@
     var dot          = document.getElementById("dot");
     var silenceBtn   = document.getElementById("silence-btn");
     var alarmTags    = document.getElementById("alarm-tags");
+    var readingsGrid = document.getElementById("readings-grid");
 
     // Same priority order as state.py _CARD_PRIORITY
     var PRIORITY = [
@@ -214,7 +250,61 @@
     }
 
     // Track last alarms so the button click can read them
-    var _lastAlarms = [];
+    var _lastAlarms      = [];
+    var _pressureHistory = [];
+
+    // Returns border class for a tile based on active (non-acked) alarms
+    function tileBorderClass(alarmId) {
+      var found = (_lastAlarms || []).filter(function (a) {
+        return a.id === alarmId && !a.acked;
+      });
+      if (!found.length) return "";
+      return found.some(function (a) { return a.level === "alarm"; }) ? " tile-alarm" : " tile-warn";
+    }
+
+    function renderReadings(state) {
+      var r = state.readings || {};
+
+      // Rolling pressure history for trend arrow
+      if (r.p != null) {
+        _pressureHistory.push(r.p);
+        if (_pressureHistory.length > 5) _pressureHistory.shift();
+      }
+      var trend = "";
+      if (_pressureHistory.length >= 2) {
+        var diff = _pressureHistory[_pressureHistory.length - 1] - _pressureHistory[0];
+        if      (diff >  0.1) trend = " <span class='trend-up'>↑</span>";
+        else if (diff < -0.1) trend = " <span class='trend-down'>↓</span>";
+        else                  trend = " <span class='trend-flat'>→</span>";
+      }
+
+      var tempF   = r.temp != null ? Math.round(r.temp * 9 / 5 + 32) + "°F" : "—";
+      var windStr = r.wind != null ? r.wind.toFixed(1) : "—";
+      var rainStr = r.rain != null ? r.rain.toFixed(2) : "—";
+      var humStr  = r.hum  != null ? r.hum.toFixed(1) + "%" : "—";
+      var presStr = r.p    != null ? r.p.toFixed(1) : "—";
+
+      var floodActive = (_lastAlarms || []).some(function (a) { return a.id === "flood" && !a.acked; });
+      var floorHtml   = floodActive
+        ? "<span class='floor-wet'>Wet</span>"
+        : "<span class='floor-dry'>Dry</span>";
+
+      function tile(label, valueHtml, alarmId) {
+        return "<div class='reading-tile" + (alarmId ? tileBorderClass(alarmId) : "") + "'>"
+          + "<div class='tile-label'>" + label + "</div>"
+          + "<div class='tile-value'>" + valueHtml + "</div>"
+          + "</div>";
+      }
+
+      readingsGrid.innerHTML = [
+        tile("Pressure (hPa)", presStr + trend, "storm"),
+        tile("Wind (mph)",     windStr,          "wind"),
+        tile("Rain (in)",      rainStr,          null),
+        tile("Temperature",    tempF,            "heat"),
+        tile("Humidity",       humStr,           "heat"),
+        tile("Floor",          floorHtml,        "flood"),
+      ].join("");
+    }
 
     // Returns the single highest-priority alarm regardless of acked status
     function topAlarm(alarms) {
@@ -258,7 +348,8 @@
         cardTitle.textContent  = "Reconnecting…";
         cardAction.textContent = "";
         silenceBtn.style.display = "none";
-        alarmTags.innerHTML    = "";
+        alarmTags.innerHTML      = "";
+        readingsGrid.innerHTML   = "";
         return;
       }
 
@@ -283,6 +374,8 @@
 
       // Silence button
       silenceBtn.style.display = active.length ? "block" : "none";
+
+      renderReadings(state);
 
       // Secondary alarm tags: all alarms sorted (acked or not), everything after the top one
       var allSorted = (_lastAlarms || []).slice().sort(function (a, b) {
