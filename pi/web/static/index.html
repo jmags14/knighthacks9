@@ -73,7 +73,6 @@
 
     /* ── Status card ── */
     .card {
-      flex: 1;
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -81,7 +80,7 @@
       text-align: center;
       border-radius: 20px;
       padding: 2.5rem 1.75rem;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1rem;
       transition: background 0.35s ease;
       min-height: 260px;
     }
@@ -104,9 +103,63 @@
       opacity: 0.88;
     }
 
-    /* Disconnected state — muted, no action text */
+    .card-silenced {
+      font-size: 0.9rem;
+      opacity: 0.7;
+      margin-top: 0.5rem;
+      font-style: italic;
+    }
+
+    /* Disconnected state */
     .card.off .card-title  { color: var(--muted); font-size: 1.5rem; font-weight: 600; }
     .card.off .card-action { display: none; }
+
+    /* ── Pulse animation — background color only, text stays white ── */
+    @keyframes pulse-alarm {
+      0%, 100% { background: var(--card-alarm); }
+      50%       { background: #7f0000; }
+    }
+    @keyframes pulse-warn {
+      0%, 100% { background: var(--card-warn); }
+      50%       { background: #bf360c; }
+    }
+    .card.alarm.pulsing { animation: pulse-alarm 2s ease-in-out infinite; }
+    .card.warn.pulsing  { animation: pulse-warn  2s ease-in-out infinite; }
+
+    /* ── Silence button ── */
+    .silence-btn {
+      display: none;
+      width: 100%;
+      padding: 0.9rem;
+      margin-bottom: 0.75rem;
+      background: #fff;
+      color: #111;
+      border: none;
+      border-radius: 12px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .silence-btn:active { background: #ddd; }
+    .silence-btn:disabled { opacity: 0.5; cursor: default; }
+
+    /* ── Secondary alarm tags ── */
+    .alarm-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-bottom: 1rem;
+    }
+    .alarm-tag {
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 0.28rem 0.7rem;
+      border-radius: 999px;
+      border: 1.5px solid;
+    }
+    .alarm-tag.alarm { color: #ff8a80; border-color: #ff8a80; }
+    .alarm-tag.warn  { color: #ffb74d; border-color: #ffb74d; }
+    .alarm-tag.acked { opacity: 0.45; }
   </style>
 </head>
 <body>
@@ -120,37 +173,131 @@
   <div class="card off" id="card">
     <div class="card-title" id="card-title">Connecting…</div>
     <div class="card-action" id="card-action"></div>
+    <div class="card-silenced" id="card-silenced" style="display:none">Alarm silenced</div>
   </div>
+
+  <button class="silence-btn" id="silence-btn">Silence alarm</button>
+  <div class="alarm-tags" id="alarm-tags"></div>
 
   <script src="js/state.js"></script>
   <script>
-    var card       = document.getElementById("card");
-    var cardTitle  = document.getElementById("card-title");
-    var cardAction = document.getElementById("card-action");
-    var dot        = document.getElementById("dot");
+    var card         = document.getElementById("card");
+    var cardTitle    = document.getElementById("card-title");
+    var cardAction   = document.getElementById("card-action");
+    var cardSilenced = document.getElementById("card-silenced");
+    var dot          = document.getElementById("dot");
+    var silenceBtn   = document.getElementById("silence-btn");
+    var alarmTags    = document.getElementById("alarm-tags");
 
-    function severityClass(state) {
-      var active = (state.alarms || []).filter(function (a) { return !a.acked; });
+    // Same priority order as state.py _CARD_PRIORITY
+    var PRIORITY = [
+      "flood:alarm", "wind:alarm", "storm:alarm", "heat:alarm",
+      "flood:warn",  "wind:warn",  "storm:warn",  "heat:warn",
+    ];
+
+    function priorityOf(alarm) {
+      var i = PRIORITY.indexOf(alarm.id + ":" + alarm.level);
+      return i === -1 ? 99 : i;
+    }
+
+    function sortedActive(alarms) {
+      return (alarms || [])
+        .filter(function (a) { return !a.acked; })
+        .slice()
+        .sort(function (a, b) { return priorityOf(a) - priorityOf(b); });
+    }
+
+    function severityClass(active) {
       if (active.some(function (a) { return a.level === "alarm"; })) return "alarm";
       if (active.some(function (a) { return a.level === "warn";  })) return "warn";
       return "clear";
     }
 
+    // Track last alarms so the button click can read them
+    var _lastAlarms = [];
+
+    // Returns the single highest-priority alarm regardless of acked status
+    function topAlarm(alarms) {
+      var all = (alarms || []).slice().sort(function (a, b) {
+        return priorityOf(a) - priorityOf(b);
+      });
+      return all.length ? all[0] : null;
+    }
+
+    silenceBtn.addEventListener("click", function () {
+      var active = sortedActive(_lastAlarms);
+      if (!active.length) return;
+      silenceBtn.disabled = true;
+      Promise.all(active.map(function (a) {
+        return fetch("/api/alarms/ack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: a.id }),
+        });
+      }))
+        .catch(function (e) { console.error("ack failed:", e); })
+        .finally(function () { silenceBtn.disabled = false; });
+    });
+
+    // Mirrors state.py _refresh_status_card — used to keep card text when all alarms are acked
+    var CARD_TEXT = {
+      "flood:alarm": { title: "Water detected",        action: "Move to higher ground"          },
+      "flood:warn":  { title: "Water detected",        action: "Move to higher ground"          },
+      "wind:alarm":  { title: "Hurricane-force winds", action: "Go to an interior room now"     },
+      "wind:warn":   { title: "High winds",            action: "Stay away from windows"         },
+      "storm:alarm": { title: "Storm warning",         action: "Stay indoors, monitor pressure" },
+      "storm:warn":  { title: "Storm warning",         action: "Stay indoors, monitor pressure" },
+      "heat:alarm":  { title: "Heat warning",          action: "Stay hydrated, find shade"      },
+      "heat:warn":   { title: "Heat warning",          action: "Stay hydrated, find shade"      },
+    };
+
     connectState(function (state) {
       if (!state._connected) {
-        dot.className        = "dot err";
-        card.className       = "card off";
+        dot.className          = "dot err";
+        card.className         = "card off";
         cardTitle.textContent  = "Reconnecting…";
         cardAction.textContent = "";
+        silenceBtn.style.display = "none";
+        alarmTags.innerHTML    = "";
         return;
       }
 
       dot.className = "dot ok";
+      _lastAlarms   = state.alarms || [];
 
-      var sc = state.status_card || {};
-      cardTitle.textContent  = sc.title  || "—";
-      cardAction.textContent = sc.action || "";
-      card.className = "card " + severityClass(state);
+      var active = sortedActive(_lastAlarms);
+      var top    = topAlarm(_lastAlarms);
+
+      // If any alarm exists (acked or not), derive card text from the top alarm
+      // so "All clear" never shows while alarms are still present
+      var ct = top ? (CARD_TEXT[top.id + ":" + top.level] || {}) : {};
+      cardTitle.textContent  = ct.title  || (state.status_card && state.status_card.title)  || "All clear";
+      cardAction.textContent = ct.action || (state.status_card && state.status_card.action) || "";
+
+      // Card color: all alarms (acked or not) set the color; pulse only while un-silenced alarms exist
+      var sevClass = !top ? "clear" : (top.level === "alarm" ? "alarm" : "warn");
+      card.className = "card " + sevClass + (active.length ? " pulsing" : "");
+
+      // "Alarm silenced" — show when the top alarm (by priority) is acked
+      cardSilenced.style.display = (top && top.acked) ? "block" : "none";
+
+      // Silence button
+      silenceBtn.style.display = active.length ? "block" : "none";
+
+      // Secondary alarm tags: all alarms sorted (acked or not), everything after the top one
+      var allSorted = (_lastAlarms || []).slice().sort(function (a, b) {
+        return priorityOf(a) - priorityOf(b);
+      });
+      if (allSorted.length > 1) {
+        alarmTags.innerHTML = allSorted.slice(1).map(function (a) {
+          var name  = a.id.charAt(0).toUpperCase() + a.id.slice(1);
+          var label = name + " " + (a.level === "alarm" ? "alarm" : "warning");
+          if (a.acked) label += " (silenced)";
+          return "<span class='alarm-tag " + a.level + (a.acked ? " acked" : "") + "'>+ " + label + "</span>";
+        }).join("");
+      } else {
+        alarmTags.innerHTML = "";
+      }
     });
   </script>
 
