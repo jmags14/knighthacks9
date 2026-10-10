@@ -1,0 +1,74 @@
+[
+ {
+  "file": "nicole_2022_cdrf1.csv",
+  "storm": "Nicole",
+  "year": 2022,
+  "station": "cdrf1",
+  "closest_km": 7.7,
+  "closest_time": "2022-11-10 19:00:00+00:00",
+  "has_wind": true,
+  "min_pressure_hpa": 990.6,
+  "max_gust_ms": 16.6,
+  "rows": 325
+ },
+ {
+  "file": "idalia_2023_42036.csv",
+  "storm": "Idalia",
+  "year": 2023,
+  "station": "42036",
+  "closest_km": 15.4,
+  "closest_time": "2023-08-30 07:00:00+00:00",
+  "has_wind": true,
+  "min_pressure_hpa": 973.2,
+  "max_gust_ms": 36.5,
+  "rows": 325
+ },
+ {
+  "file": "helene_2024_42036.csv",
+  "storm": "Helene",
+  "year": 2024,
+  "station": "42036",
+  "closest_km": 18.8,
+  "closest_time": "2024-09-26 23:00:00+00:00",
+  "has_wind": true,
+  "min_pressure_hpa": 949.4,
+  "max_gust_ms": 47.6,
+  "rows": 325
+ },
+ {
+  "file": "milton_2024_41009.csv",
+  "storm": "Milton",
+  "year": 2024,
+  "station": "41009",
+  "closest_km": 21.5,
+  "closest_time": "2024-10-10 09:00:00+00:00",
+  "has_wind": true,
+  "min_pressure_hpa": 980.3,
+  "max_gust_ms": 29.7,
+  "rows": 325
+ },
+ {
+  "file": "ian_2022_41009.csv",
+  "storm": "Ian",
+  "year": 2022,
+  "station": "41009",
+  "closest_km": 22.6,
+  "closest_time": "2022-09-29 15:00:00+00:00",
+  "has_wind": true,
+  "min_pressure_hpa": 990.8,
+  "max_gust_ms": 32.0,
+  "rows": 325
+ },
+ {
+  "file": "debby_2024_42036.csv",
+  "storm": "Debby",
+  "year": 2024,
+  "station": "42036",
+  "closest_km": 43.5,
+  "closest_time": "2024-08-05 01:00:00+00:00",
+  "has_wind": true,
+  "min_pressure_hpa": 997.3,
+  "max_gust_ms": 27.4,
+  "rows": 325
+ }
+]

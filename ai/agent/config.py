@@ -32,6 +32,17 @@ PROMPT_MAX_WORDS = 400
 ALTITUDE_M = 0.0                # meters above sea level where the box sits (~1 hPa per 8 m)
 CAL_OFFSET_HPA = 0.0            # sea-level reading minus nearby airport/NWS reading, set once
 
+# --- Storm risk model choice (ai/ml/storm_job.py). Defaults = exactly the original v1 pressure model ---
+STORM_MODEL_MODE = "v1"         # LIVE data. "v1" = pressure model only | "auto" = pick v1/v2 by which sensors work
+STORM_REPLAY_MODEL = "v1"       # REPLAY demo. "v1" = pressure only | "auto" = v2 "both" if the replay has wind columns
+WIND_RAW_UNIT = "ms"            # unit of the box's bare "wind"/"gust" field: "ms" (m/s, what the sensor reports) or "mph".
+                                # The agent speaks mph, so it converts. Fields named wind_ms / wind_mph are never ambiguous.
+SENSOR_ONLINE_MIN = 30          # a sensor counts as working if it sent a good reading in the last N minutes
+GUST_WINDOW_S = 5               # gust = highest N-second average (NOAA style) when readings come every second
+STORM_V2_DIR = ROOT / "ai" / "ml" / "v2"
+STORM_V2_FILES = {"pressure": "storm_risk_pressure.json", "wind": "storm_risk_wind.json",
+                  "both": "storm_risk_both.json"}
+
 # --- Water calculator ---
 GAL_PER_PERSON_DAY = 1.0        # Ready.gov
 PET_GAL = 0.25                  # gallons per pet per day (check pets.md)

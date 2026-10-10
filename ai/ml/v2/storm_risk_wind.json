@@ -1,0 +1,164 @@
+{
+ "version": "storm-risk-v2-20261010-wind",
+ "set": "wind",
+ "use": "tree",
+ "threshold": 0.7,
+ "thresholds": {
+  "logreg": 0.83,
+  "tree": 0.7
+ },
+ "features": [
+  "w_now",
+  "w_mean3",
+  "g_max6",
+  "dw3",
+  "dw6"
+ ],
+ "feature_help": {
+  "w_now": "wind speed now",
+  "w_mean3": "average wind over 3 hours",
+  "g_max6": "strongest gust in the last 6 hours",
+  "dw3": "3-hour change in wind speed",
+  "dw6": "6-hour change in wind speed"
+ },
+ "feature_units": {
+  "w_now": "m/s",
+  "w_mean3": "m/s",
+  "g_max6": "m/s",
+  "dw3": "m/s",
+  "dw6": "m/s"
+ },
+ "label": "TS/HU center within 150 km in the next 12 h",
+ "inputs": "hourly: mean sea-level pressure (hPa), mean wind (m/s), max gust (m/s); last 7 hours, oldest first",
+ "tree": {
+  "nodes": [
+   {
+    "id": 0,
+    "samples": 933474,
+    "risk": 0.49999999999512396,
+    "feature": "g_max6",
+    "threshold": 10.550000190734863,
+    "left": 1,
+    "right": 8
+   },
+   {
+    "id": 1,
+    "samples": 775391,
+    "risk": 0.14404460610373684,
+    "feature": "g_max6",
+    "threshold": 9.275000095367432,
+    "left": 2,
+    "right": 5
+   },
+   {
+    "id": 2,
+    "samples": 690258,
+    "risk": 0.09575878292267455,
+    "feature": "g_max6",
+    "threshold": 6.683333158493042,
+    "left": 3,
+    "right": 4
+   },
+   {
+    "id": 3,
+    "samples": 415237,
+    "risk": 0.02911753005655659
+   },
+   {
+    "id": 4,
+    "samples": 275021,
+    "risk": 0.18071482471533906
+   },
+   {
+    "id": 5,
+    "samples": 85133,
+    "risk": 0.4029798511004972,
+    "feature": "dw6",
+    "threshold": 1.0194444060325623,
+    "left": 6,
+    "right": 7
+   },
+   {
+    "id": 6,
+    "samples": 58949,
+    "risk": 0.3362698924108478
+   },
+   {
+    "id": 7,
+    "samples": 26184,
+    "risk": 0.5132939230370197
+   },
+   {
+    "id": 8,
+    "samples": 158083,
+    "risk": 0.8371709378855102,
+    "feature": "g_max6",
+    "threshold": 13.974999904632568,
+    "left": 9,
+    "right": 12
+   },
+   {
+    "id": 9,
+    "samples": 113788,
+    "risk": 0.621776481325613,
+    "feature": "dw3",
+    "threshold": 0.07888888940215111,
+    "left": 10,
+    "right": 11
+   },
+   {
+    "id": 10,
+    "samples": 63527,
+    "risk": 0.5413510460645805
+   },
+   {
+    "id": 11,
+    "samples": 50261,
+    "risk": 0.6905753755202716
+   },
+   {
+    "id": 12,
+    "samples": 44295,
+    "risk": 0.9353839154606651,
+    "feature": "w_now",
+    "threshold": 3.668333411216736,
+    "left": 13,
+    "right": 14
+   },
+   {
+    "id": 13,
+    "samples": 5293,
+    "risk": 0.30262161212239613
+   },
+   {
+    "id": 14,
+    "samples": 39002,
+    "risk": 0.9427749016735744
+   }
+  ]
+ },
+ "logreg": {
+  "mean": [
+   4.507106885703241,
+   4.506845988005513,
+   7.686318254013448,
+   0.000936810966034487,
+   0.002872480925096102
+  ],
+  "scale": [
+   2.724915260201559,
+   2.6286760400949905,
+   3.724271620334945,
+   1.6448731312912028,
+   2.050595433001083
+  ],
+  "coef": [
+   0.14033092547502318,
+   -0.04499954274733884,
+   1.5317818771454557,
+   0.07341540918188462,
+   0.1485999307131597
+  ],
+  "intercept": -1.5846850253438414
+ }
+}

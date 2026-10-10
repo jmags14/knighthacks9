@@ -121,7 +121,7 @@ def storm_status_text(storm, alarms, source="live"):
                 "Still, wait for local officials before assuming it is safe outside.")
     else:
         text = ("I don't have enough pressure history yet to tell the storm phase. "
-                "Check official forecasts and stay inside if a storm is near.")
+                "Stay inside if a storm is near, and ask again in a few hours.")
     active = [a["id"] for a in alarms]
     if active:
         text += " Active alarms: " + ", ".join(active) + "."
@@ -135,7 +135,7 @@ def risk_text(storm, source="live"):
                           "pressure history.", source)
     text = storm.get("reason") or f"Storm risk score {round(100 * risk)}%."
     if storm.get("alert"):
-        text += " That is a high score. Follow official forecasts."
+        text += " That is a high score. Stay inside and get ready."
     return replay_say(text, source)
 
 
@@ -183,8 +183,17 @@ def pressure_trend(phase):
 
 
 def weather_text(s, storm, source="live"):
-    """'What's the weather like outside?' The box measures INSIDE the house, so say so."""
+    """'What's the weather like outside?' Answered fully offline, never by sending people to a forecast.
+    Outside clues come first: wind and rain sensors, and pressure (air pressure is the same inside and
+    out). Temperature and humidity are measured INSIDE the house, so they are labeled that way."""
     parts = []
+    outside = []
+    if s.get("wind_mph") is not None:
+        outside.append(f"wind {s['wind_mph']:.0f} miles per hour")
+    if s.get("rain_in") is not None:
+        outside.append("no rain measured" if s["rain_in"] <= 0 else f"{s['rain_in']:.1f} inches of rain")
+    if outside:
+        parts.append("Outside, the box reads " + " and ".join(outside) + ".")
     if s.get("temp_c") is not None:
         inside = f"Inside the house it's {s['temp_c']:.0f} degrees Celsius, {s['temp_c'] * 9 / 5 + 32:.0f} Fahrenheit"
         if s.get("humidity") is not None:
@@ -199,7 +208,8 @@ def weather_text(s, storm, source="live"):
                  else f"Storm risk score is {round(100 * risk)} percent.")
     if not parts or (s.get("temp_c") is None and p is None):
         return "I don't have sensor readings yet."
-    parts.append("The box measures inside the house, so check an official forecast for conditions outside.")
+    parts.append("Temperature and humidity are indoor readings. Pressure, wind and rain show what "
+                 "is happening outside.")
     return replay_say(" ".join(parts), source)
 
 

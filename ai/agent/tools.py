@@ -41,6 +41,13 @@ EMPTY_STATE = {"ts": None, "source": "live", "pressure_hpa": None, "temp_c": Non
                "wall_power": 1, "alarms": [], "storm": {}, "battery": {}}
 
 
+def _wind_to_mph(v):
+    """The box's wind reading -> mph (what the agent says out loud). Unit set by config.WIND_RAW_UNIT."""
+    if v is None or config.WIND_RAW_UNIT == "mph":
+        return v
+    return v * 2.23694                      # m/s -> mph
+
+
 def from_box_state(d):
     """CS 1 BoxState.to_dict() -> AGENT_PLAN 4.1 snapshot."""
     r, p, s = d.get("readings", {}), d.get("power", {}), d.get("storm", {})
@@ -48,7 +55,7 @@ def from_box_state(d):
         "ts": d.get("ts"),
         "source": d.get("src", "live"),
         "pressure_hpa": r.get("p"), "temp_c": r.get("temp"), "humidity": r.get("hum"),
-        "water": r.get("water"), "wind_mph": r.get("wind"), "rain_in": r.get("rain"),
+        "water": r.get("water"), "wind_mph": _wind_to_mph(r.get("wind")), "rain_in": r.get("rain"),
         "wall_power": 1 if p.get("wall", True) else 0,
         "alarms": [{"id": a["id"], "level": a.get("level", "alarm"), "since": a.get("since")}
                    for a in d.get("alarms", [])],

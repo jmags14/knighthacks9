@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 
 import numpy as np
+import pytest
 
 from ai.agent import canned, rag, tools
 
@@ -48,13 +49,14 @@ def test_checkin_default_and_plugged_writer():
 
 def test_cs1_box_state_shape_is_converted():
     cs1 = {"ts": "t", "src": "replay", "readings": {"p": 990.0, "temp": 30.0, "hum": 80.0, "water": 5,
-                                                   "rain": 0.4, "wind": 41.0},
+                                                   "rain": 0.4, "wind": 18.0},      # the box sends m/s
            "power": {"wall": False, "battery_hours": 9.0, "outage_since": "2026-10-10T01:00:00+00:00"},
            "alarms": [{"id": "wind", "level": "warn", "since": "s", "acked": False}],
            "storm": {"phase": "falling", "risk": 0.9, "model": "v1"}}
     tools.set_provider(lambda: cs1)
     s = tools.get_state()
-    assert s["source"] == "replay" and s["pressure_hpa"] == 990.0 and s["wind_mph"] == 41.0
+    assert s["source"] == "replay" and s["pressure_hpa"] == 990.0
+    assert s["wind_mph"] == pytest.approx(18.0 * 2.23694)         # agent speaks mph, so it converts m/s
     assert s["wall_power"] == 0 and s["battery"]["hours_left"] == 9.0
     assert s["storm"]["model_version"] == "v1" and s["alarms"][0]["id"] == "wind"
     assert tools.get_outages()["last_lost"] == "2026-10-10T01:00:00+00:00"
