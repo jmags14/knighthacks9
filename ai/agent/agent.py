@@ -1,5 +1,4 @@
-"""The StormBox agent (AGENT_PLAN 4.2).
-
+"""
 answer(text, channel)  -> {"answer","sources","route","trace_id"}   route: tool | canned | rag
 explain_event(event)   -> {"answer","lcd","route":"proactive","trace_id"}
 
