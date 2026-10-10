@@ -6,7 +6,6 @@ Start with:  asyncio.create_task(service.start())
 """
 import asyncio
 import json
-import socket
 import time
 from typing import Awaitable, Callable
 
@@ -18,17 +17,16 @@ from .state import BoxState
 async def check_internet() -> bool:
     """
     Try three TCP probes in parallel; reachable if any one succeeds.
-    Port 53 (DNS) is blocked on some campus/corporate networks, so we also
-    try port 443 (HTTPS) on two hosts as fallbacks.
+    Uses asyncio.open_connection so asyncio.wait_for can reliably cancel on timeout
+    (run_in_executor threads can't be interrupted by asyncio on Windows).
     """
-    loop = asyncio.get_event_loop()
-
     async def _probe(host: str, port: int) -> bool:
         try:
-            await asyncio.wait_for(
-                loop.run_in_executor(None, _tcp_probe, host, port),
-                timeout=1.0,
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=1.5,
             )
+            writer.close()
             return True
         except Exception:
             return False
@@ -39,11 +37,6 @@ async def check_internet() -> bool:
         _probe("8.8.8.8", 443),
     )
     return any(results)
-
-
-def _tcp_probe(host: str, port: int):
-    with socket.create_connection((host, port), timeout=1):
-        pass
 
 
 # ------------------------------------------------------------------ serial source
@@ -169,13 +162,17 @@ class BoxService:
 
     async def start(self):
         self._running = True
-        self._state.health["internet"] = await check_internet()
-        await self._notify()   # push corrected internet state before loops begin
+        asyncio.create_task(self._init_internet())
         await asyncio.gather(
             self._read_loop(),
             self._heartbeat_loop(),
             self._health_loop(),
         )
+
+    async def _init_internet(self):
+        """Fire-and-forget: check internet once at startup, then push the result."""
+        self._state.health["internet"] = await check_internet()
+        await self._notify()
 
     def stop(self):
         self._running = False
