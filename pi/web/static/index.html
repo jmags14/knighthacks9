@@ -207,6 +207,17 @@
     .info-row.amber { color: #ff9800; }
     .info-row.muted { color: var(--muted); }
 
+    /* ── Alarm explanation strip ── */
+    .explanation-strip {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 0.75rem 1rem;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      margin-bottom: 0.75rem;
+      opacity: 0.9;
+    }
+
     /* ── Bottom nav bar ── */
     .nav-bar {
       position: fixed;
@@ -249,6 +260,7 @@
     <div class="card-silenced" id="card-silenced" style="display:none">Alarm silenced</div>
   </div>
 
+  <div class="explanation-strip" id="explanation-strip" style="display:none"></div>
   <button class="silence-btn" id="silence-btn">Silence alarm</button>
   <div class="alarm-tags" id="alarm-tags"></div>
   <div class="readings-grid" id="readings-grid"></div>
@@ -278,16 +290,17 @@
 
   <script src="js/state.js"></script>
   <script>
-    var card         = document.getElementById("card");
-    var cardTitle    = document.getElementById("card-title");
-    var cardAction   = document.getElementById("card-action");
-    var cardSilenced = document.getElementById("card-silenced");
-    var statusLabel  = document.getElementById("status-label");
-    var silenceBtn   = document.getElementById("silence-btn");
-    var alarmTags    = document.getElementById("alarm-tags");
-    var readingsGrid = document.getElementById("readings-grid");
-    var powerRow     = document.getElementById("power-row");
-    var stormRow     = document.getElementById("storm-row");
+    var card              = document.getElementById("card");
+    var cardTitle         = document.getElementById("card-title");
+    var cardAction        = document.getElementById("card-action");
+    var cardSilenced      = document.getElementById("card-silenced");
+    var statusLabel       = document.getElementById("status-label");
+    var explanationStrip  = document.getElementById("explanation-strip");
+    var silenceBtn        = document.getElementById("silence-btn");
+    var alarmTags         = document.getElementById("alarm-tags");
+    var readingsGrid      = document.getElementById("readings-grid");
+    var powerRow          = document.getElementById("power-row");
+    var stormRow          = document.getElementById("storm-row");
 
     // Same priority order as state.py _CARD_PRIORITY
     var PRIORITY = [
@@ -329,9 +342,9 @@
     function renderReadings(state) {
       var r = state.readings || {};
 
-      // Rolling pressure history for trend arrow
-      if (r.p != null) {
-        _pressureHistory.push(r.p);
+      // Rolling pressure history for trend arrow (sea-level pressure)
+      if (r.p_sl != null) {
+        _pressureHistory.push(r.p_sl);
         if (_pressureHistory.length > 5) _pressureHistory.shift();
       }
       var trend = "";
@@ -346,7 +359,7 @@
       var windStr = r.wind != null ? r.wind.toFixed(1) : "—";
       var rainStr = r.rain != null ? r.rain.toFixed(2) : "—";
       var humStr  = r.hum  != null ? r.hum.toFixed(1) + "%" : "—";
-      var presStr = r.p    != null ? r.p.toFixed(1) : "—";
+      var presStr = r.p_sl != null ? r.p_sl.toFixed(1) : "—";
 
       var floodActive = (_lastAlarms || []).some(function (a) { return a.id === "flood" && !a.acked; });
       var floorHtml   = floodActive
@@ -361,7 +374,7 @@
       }
 
       readingsGrid.innerHTML = [
-        tile("Pressure (hPa)", presStr + trend, "storm"),
+        tile("Pressure (sea lvl)", presStr + trend, "storm"),
         tile("Wind (mph)",     windStr,          "wind"),
         tile("Rain (in)",      rainStr,          null),
         tile("Temperature",    tempF,            "heat"),
@@ -474,7 +487,8 @@
         card.className          = "card off";
         cardTitle.textContent  = "Reconnecting…";
         cardAction.textContent = "";
-        silenceBtn.style.display = "none";
+        silenceBtn.style.display       = "none";
+        explanationStrip.style.display = "none";
         alarmTags.innerHTML      = "";
         readingsGrid.innerHTML = "";
         powerRow.innerHTML     = "";
@@ -505,6 +519,11 @@
 
       // Silence button
       silenceBtn.style.display = active.length ? "block" : "none";
+
+      // Explanation strip — show top alarm's explanation text if present
+      var expText = top && top.explanation ? top.explanation : "";
+      explanationStrip.style.display = expText ? "block" : "none";
+      explanationStrip.textContent   = expText;
 
       renderReadings(state);
       renderPowerRow(state);

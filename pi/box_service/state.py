@@ -17,7 +17,7 @@ class BoxState:
         self.src = "live"
         self.dev = dev  # True only when running with --fake
 
-        self.readings = {"p": None, "temp": None, "hum": None, "water": None, "rain": None, "wind": None}
+        self.readings = {"p": None, "p_sl": None, "temp": None, "hum": None, "water": None, "rain": None, "wind": None}
 
         self.power = {
             "wall": True,
@@ -28,7 +28,7 @@ class BoxState:
         # Each alarm: {"id": str, "level": "warn"|"alarm", "since": ISO, "acked": bool}
         self.alarms: list[dict] = []
 
-        self.storm = {"phase": None, "risk": None, "model": None}
+        self.storm = {"phase": None, "risk": None, "alert": None, "reason": None, "path": None, "model_version": None, "explanation": None}
 
         self.status_card = {"title": "All clear", "action": "Keep this box nearby"}
 
@@ -106,7 +106,7 @@ class BoxState:
         # Add any alarms the ESP32 lists that we haven't seen an event for yet
         for aid in msg.get("alarms", []):
             if not self._find_alarm(aid):
-                self.alarms.append({"id": aid, "level": "alarm", "since": _now(), "acked": False})
+                self.alarms.append({"id": aid, "level": "alarm", "since": _now(), "acked": False, "explanation": None})
 
         self._refresh_status_card()
 
@@ -119,7 +119,7 @@ class BoxState:
         if state == "on":
             existing = self._find_alarm(aid)
             if not existing:
-                self.alarms.append({"id": aid, "level": level, "since": _now(), "acked": False})
+                self.alarms.append({"id": aid, "level": level, "since": _now(), "acked": False, "explanation": None})
             else:
                 existing["level"] = level
         elif state == "off":

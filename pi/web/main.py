@@ -12,18 +12,19 @@ Start via:
 import asyncio
 import json
 import os
+import sqlite3
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Set
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# Ensure the repo root is on sys.path so `pi.*` imports work when the file is
-# loaded by uvicorn from any working directory.
+# Ensure the repo root is on sys.path so `pi.*` and `ai.*` imports work when
+# the file is loaded by uvicorn from any working directory.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -31,7 +32,45 @@ if str(_REPO_ROOT) not in sys.path:
 from pi.box_service.state import BoxState
 from pi.box_service.service import BoxService, SerialSource
 
+from ai.agent.api import router as agent_router
+from ai.agent import tools as agent_tools
+from ai.agent import agent as agent_module
+
 STATIC_DIR = Path(__file__).parent / "static"
+_DB_PATH   = _REPO_ROOT / "data" / "box.db"
+
+
+def _ensure_db():
+    """Create data/box.db and the agent_traces table if they don't exist."""
+    _DB_PATH.parent.mkdir(exist_ok=True)
+    con = sqlite3.connect(str(_DB_PATH))
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS agent_traces (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts           TEXT,
+            channel      TEXT,
+            question     TEXT,
+            route        TEXT,
+            tools_json   TEXT,
+            chunks_json  TEXT,
+            sensors_json TEXT,
+            answer       TEXT,
+            timings_json TEXT
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS alarms (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            alarm_id    TEXT,
+            level       TEXT,
+            since       TEXT,
+            explanation TEXT
+        )
+    """)
+    con.commit()
+    con.close()
+
 
 # ------------------------------------------------------------------ globals
 
@@ -70,7 +109,11 @@ async def lifespan(app: FastAPI):
             "Set STORMBOX_FAKE=1 or STORMBOX_SERIAL=<port> before starting."
         )
 
+    _ensure_db()
     _state = BoxState(dev=dev_mode)
+
+    # Give the agent its live state getter
+    agent_tools.set_provider(lambda: _state.to_dict())
 
     if dev_mode:
         from pi.box_service.fake import FakeESP32
@@ -85,6 +128,11 @@ async def lifespan(app: FastAPI):
     _service.register_on_change(_broadcast)
 
     service_task = asyncio.create_task(_service.start())
+
+    # Warm up the agent (loads embedding model + LLM) in a background thread
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, agent_module.warm_up)
+
     print(f"[web] StormBox ready  dev={dev_mode}  port=8000")
 
     yield   # app runs here
@@ -99,6 +147,7 @@ async def lifespan(app: FastAPI):
 # ------------------------------------------------------------------ app
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(agent_router)
 
 
 # ------------------------------------------------------------------ WebSocket
@@ -124,20 +173,6 @@ async def ws_endpoint(ws: WebSocket):
 @app.get("/api/state")
 async def get_state():
     return _state.to_dict()
-
-
-class AskBody(BaseModel):
-    text: str
-
-@app.post("/api/ask")
-async def post_ask(body: AskBody):
-    return await _ask(body.text, _state.to_dict())
-
-
-async def _ask(text: str, current_state: dict) -> dict:
-    # Stub — CS 2's agent plugs in here. Keep this as one function so the
-    # teammate only needs to replace this body.
-    return {"answer": "Agent not connected yet.", "sources": [], "trace_id": None}
 
 
 class AckBody(BaseModel):
