@@ -63,12 +63,12 @@ def test_each_event_fires_once():
     assert [e["state"] for e in events] == ["lost", "restored"]
 
 
-def test_starting_offline_reports_lost_after_three_misses():
+def test_starting_offline_stays_silent_even_after_many_misses_and_recovery():
     m, events = monitor()
-    feed(m, [False, False])
-    assert events == []
-    feed(m, [False])                                     # 3 misses in a row from the start
-    assert [e["state"] for e in events] == ["lost"]
+    feed(m, [False] * 10)
+    assert events == [] and m.status()["online"] is False
+    feed(m, [True, True])                                # comes up quietly: no "restored" either
+    assert events == [] and m.status()["online"] is True
 
 
 def test_failing_callback_does_not_break_the_monitor():
@@ -244,12 +244,13 @@ def test_router_keeps_other_questions_away_from_connectivity(text):
     assert router.route(text)["intent"] != "connectivity"
 
 
-def test_starting_offline_then_recovering_early_says_nothing():
+def test_drop_after_a_silent_offline_start_still_says_lost_then_restored():
     m, events = monitor()
-    feed(m, [False, False, True])                        # blip at startup, never announced as lost
-    assert events == [] and m.status()["online"] is True
-    feed(m, [True, False, False, False])
-    assert [e["state"] for e in events] == ["lost"]
+    feed(m, [False, False, True, True])                  # offline start, recovers silently
+    assert events == []
+    feed(m, [False, False, False])
+    feed(m, [True, True])
+    assert [e["state"] for e in events] == ["lost", "restored"]
 
 
 def test_starting_offline_shows_offline_status_right_away():

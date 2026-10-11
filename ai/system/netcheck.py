@@ -7,7 +7,8 @@
 Every NET_INTERVAL_S it tries a TCP connect to each target (IP + port, no DNS). Online if ANY
 connects. NET_DOWN_AFTER misses in a row -> "lost"; NET_UP_AFTER successes in a row -> "restored".
 A result that goes the other way resets the count, so a flaky link does not flap. The first result
-only sets the starting state (no event for "internet was already up").
+only sets the starting state: starting online OR offline is silent. Only a drop from online to offline
+says "lost"; "restored" is only said after a "lost" (coming up from a silent offline start is silent).
 Runs in its own daemon thread; the callback runs on that thread, so keep it quick (enqueue and return).
 """
 import socket
@@ -48,7 +49,7 @@ class NetMonitor:
         self._last_check = None
         self._misses = 0
         self._hits = 0
-        self._unannounced_down = False  # started offline and "lost" has not been sent yet
+        self._lost_sent = False         # "restored" is only sent after a "lost" was sent
 
     # ---------------------------------------------------------------- one check
     def probe(self):
@@ -65,21 +66,16 @@ class NetMonitor:
                 self._hits, self._misses = self._hits + 1, 0
             else:
                 self._misses, self._hits = self._misses + 1, 0
-            if self._online is None:        # first result: set the baseline. Up -> say nothing.
+            if self._online is None:        # first result: set the baseline. Up or down -> say nothing.
                 self._online, self._since = ok, self._last_check
-                self._unannounced_down = not ok     # down -> still announce "lost" after down_after misses
-            elif self._unannounced_down:
-                if ok:
-                    self._online, self._since, self._unannounced_down = True, self._last_check, False
-                elif self._misses >= self.down_after:
-                    self._unannounced_down = False
-                    event = {"t": "net", "state": "lost", "ts": self._since}
             elif self._online and self._misses >= self.down_after:
-                self._online, self._since = False, self._last_check
+                self._online, self._since, self._lost_sent = False, self._last_check, True
                 event = {"t": "net", "state": "lost", "ts": self._since}
             elif not self._online and self._hits >= self.up_after:
                 self._online, self._since = True, self._last_check
-                event = {"t": "net", "state": "restored", "ts": self._since}
+                if self._lost_sent:         # coming up from a silent offline start stays silent
+                    self._lost_sent = False
+                    event = {"t": "net", "state": "restored", "ts": self._since}
         if event and self.on_event:
             try:
                 self.on_event(event)

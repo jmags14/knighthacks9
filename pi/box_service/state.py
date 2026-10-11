@@ -30,6 +30,7 @@ class BoxState:
         self.health = {
             "esp32_link": False,
             "last_msg_age_ms": 0,
+            "serial_error": None,      # plain-words serial problem, e.g. "Microcontroller disconnected ..."
             "net": {"online": None, "since": None, "last_check": None, "misses": 0},
         }
 
