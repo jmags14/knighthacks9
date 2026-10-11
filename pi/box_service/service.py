@@ -313,9 +313,10 @@ class BoxService:
         while self._running:
             await asyncio.sleep(1)
             age_ms = int((time.monotonic() - self._last_rx) * 1000)
+            linked = age_ms < 5000
             self._state.health["last_msg_age_ms"] = age_ms
-            self._state.health["esp32_link"] = age_ms < 5000
-            self._state.health["serial_error"] = getattr(self._source, "last_error", None)
+            self._state.health["esp32_link"] = linked
+            self._state.health["serial_error"] = None if linked else getattr(self._source, "last_error", None)
             self._state.health["net"] = _netcheck.status()
             await self._notify()
 
