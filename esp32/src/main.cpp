@@ -1,8 +1,28 @@
 #include <Arduino.h>
 #include <Wire.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 #include "SPL07-003.h"   // Seeed_Arduino_SPA06 library (Grove SPA06-003 barometer)
+
+// =====================================================================
+// Network: the ESP32 is the access point, the laptop joins it and runs
+// Mosquitto. The ESP32 itself is at 192.168.4.1; the laptop normally
+// gets 192.168.4.2 (set it as a static IP on the laptop to be sure).
+// =====================================================================
+#define AP_SSID      "weathertest"
+#define AP_PASS      "weather1234"      // must be 8+ characters
+#define MQTT_HOST    "192.168.4.2"      // laptop's IP on the ESP32 network
+#define MQTT_PORT    1883
+#define MQTT_USER    "station"
+#define MQTT_PASS    "0918"
+#define MQTT_CLIENT  "esp32-weather"
+
+#define TOPIC_DATA    "weather/station"   // JSON reading every 2 s
+#define TOPIC_STATUS  "weather/status"    // "online" / "offline" (retained)
+#define TOPIC_CMD     "weather/cmd"       // send "beep" to test the buzzer
+
 #define WIND_MS_PER_HZ   0.667f
 
 // =====================================================================
@@ -62,6 +82,10 @@
 DHT dht(DHT_PIN, DHT11);
 SPL07_003 barometer;
 bool barometerOK = false;
+
+WiFiClient espClient;
+PubSubClient mqtt(espClient);
+uint32_t lastMqttAttempt = 0;
 
 volatile uint32_t hallCount = 0;
 void IRAM_ATTR onHall() { hallCount++; }   // ISR must live in IRAM on ESP32
@@ -153,10 +177,10 @@ uint8_t readReg(uint8_t addr, uint8_t reg) {
   return Wire.read();
 }
 
-// Print a float with `dec` decimals, or the JSON literal null if it is NaN
-void printJsonFloat(float v, int dec) {
-  if (isnan(v)) Serial.print(F("null"));
-  else Serial.print(v, dec);
+// Format a float with `dec` decimals, or the JSON literal null if it is NaN
+void fmtJsonFloat(char* out, size_t n, float v, int dec) {
+  if (isnan(v)) snprintf(out, n, "null");
+  else          snprintf(out, n, "%.*f", dec, v);
 }
 
 void printPinMap() {
@@ -167,6 +191,36 @@ void printPinMap() {
   Serial.printf("  DHT11    : GPIO%d (P%d)\n", DHT_PIN, DHT_PIN);
   Serial.printf("  Hall     : GPIO%d (P%d)\n", HALL_PIN, HALL_PIN);
   Serial.printf("  Buzzer   : GPIO%d (P%d)\n", BUZZER_PIN, BUZZER_PIN);
+}
+
+// ---- MQTT ----
+void onMqttMessage(char* topic, byte* payload, unsigned int length) {
+  String msg;
+  for (unsigned int i = 0; i < length; i++) msg += (char)payload[i];
+  Serial.printf("MQTT in [%s]: %s\n", topic, msg.c_str());
+  if (msg == "beep") beep(1, 150);
+}
+
+// Non-blocking: one attempt every 3 s, and only once a client has joined the AP
+void mqttEnsureConnected() {
+  if (mqtt.connected()) return;
+  if (millis() - lastMqttAttempt < 3000) return;
+  lastMqttAttempt = millis();
+
+  if (WiFi.softAPgetStationNum() == 0) {
+    Serial.println(F("MQTT: waiting for the laptop to join the access point..."));
+    return;
+  }
+
+  Serial.printf("MQTT: connecting to %s:%d ...", MQTT_HOST, MQTT_PORT);
+  // last-will message: broker publishes "offline" if the ESP32 drops
+  if (mqtt.connect(MQTT_CLIENT, MQTT_USER, MQTT_PASS, TOPIC_STATUS, 0, true, "offline")) {
+    Serial.println(F(" connected"));
+    mqtt.publish(TOPIC_STATUS, "online", true);
+    mqtt.subscribe(TOPIC_CMD);
+  } else {
+    Serial.printf(" failed, rc=%d\n", mqtt.state());
+  }
 }
 
 void setup() {
@@ -180,6 +234,17 @@ void setup() {
 
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, BUZZER_OFF);
+
+  // ---- Wi-Fi access point (do NOT call WiFi.begin anywhere) ----
+  WiFi.mode(WIFI_AP);
+  bool apOK = WiFi.softAP(AP_SSID, AP_PASS);
+  Serial.printf("Access point '%s' %s, IP %s\n", AP_SSID,
+                apOK ? "started" : "FAILED to start",
+                WiFi.softAPIP().toString().c_str());
+
+  mqtt.setServer(MQTT_HOST, MQTT_PORT);
+  mqtt.setCallback(onMqttMessage);
+  mqtt.setBufferSize(512);   // JSON line is ~200 bytes; default 256 is tight
 
   // ESP32: pins are passed to begin()
   Wire.begin(MY_I2C_SDA, MY_I2C_SCL);
@@ -238,6 +303,10 @@ void setup() {
 }
 
 void loop() {
+  // Keep MQTT alive on every pass, before the 2 s sensor gate below
+  mqttEnsureConnected();
+  mqtt.loop();
+
   static uint32_t last = 0;
   static uint32_t lastPulses = 0;
   uint32_t now = millis();
@@ -285,11 +354,11 @@ void loop() {
   // Hall (A3144/KY-003 pulls LOW near a magnet)
   bool magnet = digitalRead(HALL_PIN) == LOW;
 
-  // Wind: pulses since the last report -> Hz -> km/h
+  // Wind: pulses since the last report -> Hz -> m/s
   uint32_t pulses = hallCount;
   uint32_t dPulses = pulses - lastPulses;
   lastPulses = pulses;
- float windMs = (dPulses * 1000.0f / elapsedMs) * WIND_MS_PER_HZ;   // m/s
+  float windMs = (dPulses * 1000.0f / elapsedMs) * WIND_MS_PER_HZ;   // m/s
 
   // Alarm flags
   bool waterAlarm = waterPct >= WATER_ALARM_PCT;
@@ -320,28 +389,40 @@ void loop() {
   }
   Serial.printf("Water    : raw %d, %d %%  -> now: %s\n", waterRaw, waterPct, RAIN_NAME[rainNow]);
   Serial.printf("Hall     : %s, pulses %lu\n", magnet ? "MAGNET" : "none", (unsigned long)hallCount);
+  Serial.printf("Wi-Fi    : %d client(s) on AP, MQTT %s\n",
+                WiFi.softAPgetStationNum(), mqtt.connected() ? "connected" : "disconnected");
   if (waterAlarm) Serial.println(F("ALARM: water level high"));
   if (tempAlarm)  Serial.println(F("ALARM: temperature high"));
   if (minuteDone) printRainReport();
 #endif
 
-  // ---- JSON line ----
-  Serial.print(F("{\"t\":\"r\",\"ms\":"));
-  Serial.print(now);
-  Serial.print(F(",\"p\":"));     printJsonFloat(pressure, 1);
-  Serial.print(F(",\"temp\":"));  printJsonFloat(tempOut, 1);
-  Serial.print(F(",\"hum\":"));   printJsonFloat(dhtOK ? h : NAN, 0);
-  Serial.print(F(",\"water\":")); Serial.print(waterRaw);
-  Serial.print(F(",\"rain\":"));  Serial.print(waterPct);
-  Serial.print(F(",\"rainLvl\":\"")); Serial.print(RAIN_NAME[rainTrend]);
-  Serial.print(F("\",\"rainMin\":")); Serial.print(rainMin);
-Serial.print(F(",\"wind\":"));  Serial.print(windMs, 2);
-  Serial.print(F(",\"wall\":"));  Serial.print(magnet ? 1 : 0);
-  Serial.print(F(",\"src\":\"live\",\"alarms\":["));
-  bool first = true;
-  if (waterAlarm) { Serial.print(F("\"water\"")); first = false; }
-  if (tempAlarm)  { if (!first) Serial.print(','); Serial.print(F("\"temp\"")); first = false; }
-  Serial.println(F("]}"));
+  // ---- Build the JSON line ----
+  char sP[16], sTemp[16], sHum[16];
+  fmtJsonFloat(sP,    sizeof(sP),    pressure,            1);
+  fmtJsonFloat(sTemp, sizeof(sTemp), tempOut,             1);
+  fmtJsonFloat(sHum,  sizeof(sHum),  dhtOK ? h : NAN,     0);
+
+  char alarms[32];
+  alarms[0] = '\0';
+  if (waterAlarm) strcat(alarms, "\"water\"");
+  if (tempAlarm) {
+    if (alarms[0]) strcat(alarms, ",");
+    strcat(alarms, "\"temp\"");
+  }
+
+  char json[320];
+  snprintf(json, sizeof(json),
+           "{\"t\":\"r\",\"ms\":%lu,\"p\":%s,\"temp\":%s,\"hum\":%s,"
+           "\"water\":%d,\"rain\":%d,\"rainLvl\":\"%s\",\"rainMin\":%d,"
+           "\"wind\":%.2f,\"wall\":%d,\"src\":\"live\",\"alarms\":[%s]}",
+           (unsigned long)now, sP, sTemp, sHum,
+           waterRaw, waterPct, RAIN_NAME[rainTrend], rainMin,
+           windMs, magnet ? 1 : 0, alarms);
+
+  Serial.println(json);                       // still goes out over USB serial
+  if (mqtt.connected()) {
+    mqtt.publish(TOPIC_DATA, json);           // and over MQTT to the laptop
+  }
 
   // ---- Buzzer ----
   if (waterAlarm) {
