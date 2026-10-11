@@ -60,6 +60,12 @@
     .status-label.ok  { color: #4caf50; }
     .status-label.err { color: #f44336; }
 
+    .net-line {
+      font-size: 0.75rem;
+      padding-bottom: 0.5rem;
+      flex-shrink: 0;
+    }
+
     /* ── Status card ── */
     .card {
       display: flex;
@@ -176,10 +182,18 @@
       font-weight: 800;
       line-height: 1.1;
     }
+    .tile-sub {
+      font-size: 0.72rem;
+      margin-top: 0.25rem;
+      line-height: 1.2;
+    }
     .reading-tile.tile-alarm { border-color: #f44336; }
     .reading-tile.tile-warn  { border-color: #ff9800; }
     .floor-wet  { color: #f44336; }
+    .floor-damp { color: #ff9800; }
     .floor-dry  { color: #4caf50; }
+    .feels-caution  { color: #ff9800; }
+    .feels-danger   { color: #f44336; }
     .trend-up   { color: #64b5f6; }
     .trend-down { color: #ff9800; }
     .trend-flat { color: var(--muted); }
@@ -263,6 +277,8 @@
     <span class="topbar-title">StormBox</span>
     <span class="status-label err" id="status-label">● Reconnecting to box...</span>
   </div>
+
+  <div class="net-line" id="net-line" style="display:none"></div>
 
   <div class="card off" id="card">
     <div class="card-title" id="card-title">Connecting…</div>
@@ -378,17 +394,34 @@
 
       var tempF   = r.temp != null ? Math.round(r.temp * 9 / 5 + 32) + "°F" : "—";
       var windStr = r.wind != null ? r.wind.toFixed(1) : "—";
-      var rainStr = r.rain != null ? r.rain.toFixed(2) : "—";
       var humStr  = r.hum  != null ? r.hum.toFixed(1) + "%" : "—";
       var presStr = r.p_sl != null ? r.p_sl.toFixed(1) : "—";
 
-      var esp32Up     = !!(state.health && state.health.esp32_link);
-      var floodActive = esp32Up && (_lastAlarms || []).some(function (a) { return a.id === "flood" && !a.acked; });
-      var floorHtml   = !esp32Up
-        ? "—"
-        : (floodActive
-            ? "<span class='floor-wet'>Wet</span>"
-            : "<span class='floor-dry'>Dry</span>");
+      var esp32Up = !!(state.health && state.health.esp32_link);
+
+      // Floor: dry/damp/wet word computed on the Pi from CS 2's floor_state()
+      var floorWord = r.floor_word;
+      var floorHtml = !esp32Up ? "—"
+        : floorWord === "wet"  ? "<span class='floor-wet'>Wet</span>"
+        : floorWord === "damp" ? "<span class='floor-damp'>Damp</span>"
+        : floorWord === "dry"  ? "<span class='floor-dry'>Dry</span>"
+        : "—";
+
+      // Feels like: label and category from Pi-computed heat_info()
+      var feelsLabel = r.feels_like || null;
+      var feelsCat   = r.feels_like_cat || "";
+      var feelsClass = (feelsCat === "Danger" || feelsCat === "Extreme Danger") ? "feels-danger"
+                     : feelsCat !== "none" && feelsCat !== "" ? "feels-caution" : "";
+      // Extract just the "XX°F" part from the full label string (e.g. "Feels like 98°F · Extreme Caution")
+      var feelsTemp  = feelsLabel ? (feelsLabel.match(/\d+°F/) || [tempF])[0] : tempF;
+      var feelsCautionLine = (feelsCat && feelsCat !== "none" && feelsCat !== "")
+        ? "<div class='tile-sub " + feelsClass + "'>" + feelsCat + "</div>"
+        : "";
+      var feelsTile  = "<div class='reading-tile" + tileBorderClass("heat") + "'>"
+        + "<div class='tile-label'>Feels like</div>"
+        + "<div class='tile-value " + feelsClass + "'>" + feelsTemp + "</div>"
+        + feelsCautionLine
+        + "</div>";
 
       function tile(label, valueHtml, alarmId) {
         return "<div class='reading-tile" + (alarmId ? tileBorderClass(alarmId) : "") + "'>"
@@ -399,11 +432,11 @@
 
       readingsGrid.innerHTML = [
         tile("Pressure (sea lvl)", presStr + trend, "storm"),
-        tile("Wind (mph)",     windStr,          "wind"),
-        tile("Rain (in)",      rainStr,          null),
-        tile("Temperature",    tempF,            "heat"),
-        tile("Humidity",       humStr,           "heat"),
-        tile("Floor",          floorHtml,        "flood"),
+        tile("Wind (mph)",         windStr,         "wind"),
+        feelsTile,
+        tile("Temperature",        tempF,           "heat"),
+        tile("Humidity",           humStr,          "heat"),
+        tile("Floor",              floorHtml,       "flood"),
       ].join("");
     }
 
@@ -473,12 +506,28 @@
         alarmTags.innerHTML      = "";
         readingsGrid.innerHTML = "";
         stormRow.textContent   = "";
+        document.getElementById("net-line").style.display = "none";
         return;
       }
 
       statusLabel.className   = "status-label ok";
       statusLabel.textContent = "● Connected to box";
       _lastAlarms             = state.alarms || [];
+
+      // Net status line
+      var _net   = (state.health || {}).net || {};
+      var _netEl = document.getElementById("net-line");
+      if (_net.online === true) {
+        _netEl.textContent = "● Internet available";
+        _netEl.style.color = "#4caf50";
+      } else if (_net.online === false) {
+        _netEl.textContent = "● No internet · StormBox works offline";
+        _netEl.style.color = "#ff9800";
+      } else {
+        _netEl.textContent = "● Checking connection…";
+        _netEl.style.color = "#777";
+      }
+      _netEl.style.display = "block";
 
       // Replay banner
       var rp = state.replay || {};

@@ -17,7 +17,8 @@ class BoxState:
         self.src = "live"
         self.dev = dev  # True only when running with --fake
 
-        self.readings = {"p": None, "p_sl": None, "temp": None, "hum": None, "water": None, "rain": None, "wind": None}
+        self.readings = {"p": None, "p_sl": None, "temp": None, "hum": None, "water": None, "wind": None,
+                         "floor_word": None, "feels_like": None, "feels_like_cat": None}
 
         # Each alarm: {"id": str, "level": "warn"|"alarm", "since": ISO, "acked": bool}
         self.alarms: list[dict] = []
@@ -29,7 +30,7 @@ class BoxState:
         self.health = {
             "esp32_link": False,
             "last_msg_age_ms": 0,
-            "internet": False,
+            "net": {"online": None, "since": None, "last_check": None, "misses": 0},
         }
 
         self.replay = {"on": False, "file": None, "progress": 0, "hour": 0, "paused": False, "speed": 1}

@@ -120,8 +120,9 @@
     .trend-up   { color: var(--blue);  }
     .trend-down { color: var(--amber); }
     .trend-flat { color: var(--muted); }
-    .wet { color: var(--red);   }
-    .dry { color: var(--green); }
+    .wet  { color: var(--red);   }
+    .damp { color: var(--amber); }
+    .dry  { color: var(--green); }
 
     /* System status pills */
     .status-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
@@ -260,9 +261,9 @@
       var tempF   = tempC  != null ? Math.round(tempC * 9 / 5 + 32) : null;
       var tempStr = tempC  != null ? tempF + "°F / " + tempC.toFixed(1) + "°C" : "—";
 
-      var floodOn    = (state.alarms || []).some(function (a) { return a.id === "flood" && !a.acked; });
-      var floorClass = floodOn ? "wet" : "dry";
-      var floorLabel = floodOn ? "Wet" : "Dry";
+      var floorWord  = r.floor_word;
+      var floorClass = floorWord === "wet" ? "wet" : floorWord === "damp" ? "damp" : "dry";
+      var floorLabel = floorWord ? (floorWord.charAt(0).toUpperCase() + floorWord.slice(1)) : "—";
 
       function v(x, dp) { return x != null ? x.toFixed(dp) : "—"; }
 
@@ -277,7 +278,6 @@
       document.getElementById("tiles").innerHTML = [
         tile("Pressure (hPa)", v(r.p, 1) + trend),
         tile("Wind (mph)",     v(r.wind, 1)),
-        tile("Rain (in)",      v(r.rain, 3)),
         tile("Temperature",    tempStr),
         tile("Humidity (%)",   r.hum  != null ? v(r.hum, 1) + "%" : "—"),
         tile("Floor",
@@ -290,14 +290,18 @@
 
     function renderStatus(state) {
       var health = state.health || {};
+      var net    = health.net   || {};
+      var online = net.online;
 
       var esp32Html = health.esp32_link
         ? "<span class='pill pill-on'>ESP32 connected</span>"
         : "<span class='pill pill-off'>ESP32 lost</span>";
 
-      var netHtml = health.internet
-        ? "<span class='pill pill-info'>Internet reachable</span>"
-        : "<span class='pill pill-info'>Internet unreachable</span>";
+      var netHtml = online === true
+        ? "<span class='pill pill-on'>Internet: OK</span>"
+        : online === false
+          ? "<span class='pill pill-off'>Internet: unreachable</span>"
+          : "<span class='pill pill-info'>Internet: checking…</span>";
 
       document.getElementById("status-row").innerHTML = esp32Html + netHtml;
     }

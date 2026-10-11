@@ -24,7 +24,6 @@ class FakeESP32:
     _BASE_TEMP  = 29.0     # °C
     _BASE_HUM   = 78.0     # % (mid-range 70-90)
     _BASE_WATER = 100      # moisture ADC count (dry)
-    _BASE_RAIN  = 0.0      # inches
     _BASE_WIND  = 7.0      # mph (calm)
 
     def __init__(self):
@@ -32,7 +31,6 @@ class FakeESP32:
         self._temp  = self._BASE_TEMP
         self._hum   = self._BASE_HUM
         self._water = self._BASE_WATER
-        self._rain  = self._BASE_RAIN
         self._wind  = self._BASE_WIND
         self._ms    = 0        # simulated uptime ms
 
@@ -66,7 +64,6 @@ class FakeESP32:
             "temp":   round(self._temp, 1),
             "hum":    round(self._hum, 1),
             "water":  self._water,
-            "rain":   round(self._rain, 3),
             "wind":   round(self._wind / 2.237, 2),   # internal mph → m/s (matches real ESP32)
             "src":    "live",
             "alarms": sorted(self._alarms),
@@ -137,7 +134,6 @@ class FakeESP32:
             self._temp  = self._BASE_TEMP
             self._hum   = self._BASE_HUM
             self._water = self._BASE_WATER
-            self._rain  = self._BASE_RAIN
             self._wind  = self._BASE_WIND
             self._wind_alarm_level = ""
 
@@ -185,12 +181,6 @@ class FakeESP32:
         # --- moisture ---
         if not self._flood_on:
             self._water = max(50, min(200, self._water + random.randint(-5, 5)))
-
-        # --- rain (inches; accumulates during storm, otherwise random walk with floor) ---
-        if self._storm_dropping:
-            self._rain = round(min(1.5, self._rain + 0.005), 3)
-        else:
-            self._rain = round(max(0.0, self._rain + random.uniform(-0.003, 0.003)), 3)
 
         # --- wind ---
         if self._wind_ramping:

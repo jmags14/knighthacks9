@@ -21,7 +21,10 @@ from ai.agent.config import ALTITUDE_M, CAL_OFFSET_HPA, BOX_DB, ROOT as _REPO_RO
 _REPLAY_DIR = _REPO_ROOT / "ai" / "ml" / "v2" / "replay"
 from ai.agent.agent import explain_event as agent_explain
 from ai.agent import templates as _alarm_templates
+from ai.agent.heat import heat_info as _heat_info
+from ai.agent.tools import floor_state as _floor_state
 from ai.ml.storm_job import run_storm_job, replay_timeline as _replay_timeline
+from ai.system import netcheck as _netcheck
 
 
 # ------------------------------------------------------------------ helpers
@@ -76,33 +79,6 @@ def _storm_phase(hourly: list) -> str | None:
     if diff_3h <= -3:
         return "falling"
     return None
-
-
-# ------------------------------------------------------------------ internet check
-
-async def check_internet() -> bool:
-    """
-    Try three TCP probes in parallel; reachable if any one succeeds.
-    Uses asyncio.open_connection so asyncio.wait_for can reliably cancel on timeout
-    (run_in_executor threads can't be interrupted by asyncio on Windows).
-    """
-    async def _probe(host: str, port: int) -> bool:
-        try:
-            _, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port),
-                timeout=1.5,
-            )
-            writer.close()
-            return True
-        except Exception:
-            return False
-
-    results = await asyncio.gather(
-        _probe("1.1.1.1", 53),
-        _probe("1.1.1.1", 443),
-        _probe("8.8.8.8", 443),
-    )
-    return any(results)
 
 
 # ------------------------------------------------------------------ serial source
@@ -206,6 +182,9 @@ class BoxService:
         self._resume_event:            asyncio.Event      = asyncio.Event()
         self._resume_event.set()       # starts in "running" state
 
+        self._loop:      asyncio.AbstractEventLoop | None = None
+        self._net_queue: asyncio.Queue                    = asyncio.Queue()
+
     def register_on_change(self, cb: OnChangeCb):
         """Register a coroutine called with the full state dict on every change."""
         self._cbs.append(cb)
@@ -217,6 +196,18 @@ class BoxService:
                 await cb(snapshot)
             except Exception as exc:
                 print(f"[service] notify error: {exc}")
+
+    def _update_computed_readings(self):
+        """Recompute feels_like and floor_word from current readings + alarms."""
+        r = self._state.readings
+        info = _heat_info(r.get("temp"), r.get("hum"))
+        r["feels_like"]     = info["label"]    if info else None
+        r["feels_like_cat"] = info["category"] if info else None
+        r["floor_word"] = _floor_state({
+            "water":     r.get("water"),
+            "floor_pct": None,
+            "alarms":    self._state.alarms,
+        })
 
     # ------------------------------------------------------------------ read loop
 
@@ -232,6 +223,7 @@ class BoxService:
                 except Exception:
                     msg_ts = datetime.now(timezone.utc).isoformat()
                 self._handle_line(raw)
+                self._update_computed_readings()
                 # During replay, pressure/wind/buffer are owned by the replay task.
                 if not self._state.replay["on"]:
                     p    = self._state.readings["p"]
@@ -287,18 +279,40 @@ class BoxService:
     # ------------------------------------------------------------------ health
 
     async def _health_loop(self):
-        """Update esp32_link every second; check internet every 30 s."""
-        internet_tick = 0
+        """Update esp32_link every second; net status comes from netcheck (its own thread)."""
         while self._running:
             await asyncio.sleep(1)
             age_ms = int((time.monotonic() - self._last_rx) * 1000)
             self._state.health["last_msg_age_ms"] = age_ms
             self._state.health["esp32_link"] = age_ms < 5000
-            internet_tick += 1
-            if internet_tick >= 30:
-                internet_tick = 0
-                self._state.health["internet"] = await check_internet()
+            self._state.health["net"] = _netcheck.status()
             await self._notify()
+
+    # ------------------------------------------------------------------ net events
+
+    def _on_net_event(self, event: dict):
+        """Called by the netcheck thread; enqueues the event for _net_worker."""
+        if self._loop:
+            self._loop.call_soon_threadsafe(self._net_queue.put_nowait, event)
+
+    async def _net_worker(self):
+        """Drain net events: explain via agent, send LCD, push to dashboard."""
+        while self._running:
+            try:
+                event = await asyncio.wait_for(self._net_queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+            loop = asyncio.get_event_loop()
+            try:
+                result = await loop.run_in_executor(None, lambda e=event: agent_explain(e))
+                answer = result.get("answer", "")
+                if not answer:
+                    continue
+                lcd = result.get("lcd", ("", ""))
+                await self._send_lcd_cmd(lcd[0], lcd[1])
+                await self._notify()
+            except Exception as exc:
+                print(f"[service] net event error: {exc}")
 
     # ------------------------------------------------------------------ LCD + explanations
 
@@ -502,18 +516,15 @@ class BoxService:
 
     async def start(self):
         self._running = True
-        asyncio.create_task(self._init_internet())
+        self._loop = asyncio.get_event_loop()
+        _netcheck.start(self._on_net_event)
+        asyncio.create_task(self._net_worker())
         await asyncio.gather(
             self._read_loop(),
             self._heartbeat_loop(),
             self._health_loop(),
             self._storm_loop(),
         )
-
-    async def _init_internet(self):
-        """Fire-and-forget: check internet once at startup, then push the result."""
-        self._state.health["internet"] = await check_internet()
-        await self._notify()
 
     def stop(self):
         self._running = False

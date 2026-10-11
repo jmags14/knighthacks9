@@ -245,6 +245,12 @@
     </div>
   </div>
 
+  <!-- ── System health ── -->
+  <div class="panel">
+    <h2>System health</h2>
+    <div id="health-row" style="font-size:0.9rem; display:flex; flex-wrap:wrap; gap:1rem; color:var(--muted)">—</div>
+  </div>
+
   <!-- ── Chart (a): Pressure + Wind ── -->
   <div class="panel" id="chart-panel" style="display:none">
     <h2>Pressure &amp; Wind</h2>
@@ -613,7 +619,27 @@
       if (_chart && on) {
         updateChartCursor(replay.hour);
       }
+
+      renderHealth(state);
     });
+
+    function renderHealth(state) {
+      var health = state.health || {};
+      var net    = health.net   || {};
+      var online = net.online;
+
+      var esp32Html = health.esp32_link
+        ? "<span style='color:var(--green)'>ESP32: connected</span>"
+        : "<span style='color:var(--red)'>ESP32: lost</span>";
+
+      var netHtml = online === true
+        ? "<span style='color:var(--green)'>Internet: OK</span>"
+        : online === false
+          ? "<span style='color:var(--red)'>Internet: unreachable</span>"
+          : "<span style='color:var(--muted)'>Internet: checking…</span>";
+
+      document.getElementById("health-row").innerHTML = esp32Html + netHtml;
+    }
   </script>
 </body>
 </html>
