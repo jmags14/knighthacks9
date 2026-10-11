@@ -57,6 +57,7 @@ def test_cs1_box_state_shape_is_converted():
     s = tools.get_state()
     assert s["source"] == "replay" and s["pressure_hpa"] == 990.0
     assert s["wind_mph"] == pytest.approx(18.0 * 2.23694)         # agent speaks mph, so it converts m/s
+    assert s["rain_in"] is None and s["floor_pct"] is None    # "rain" is the floor percent, never inches
     assert s["wall_power"] == 0 and s["battery"]["hours_left"] == 9.0
     assert s["storm"]["model_version"] == "v1" and s["alarms"][0]["id"] == "wind"
     assert tools.get_outages()["last_lost"] == "2026-10-10T01:00:00+00:00"

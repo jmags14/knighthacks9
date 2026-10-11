@@ -9,7 +9,10 @@ The provider may return the AGENT_PLAN 4.1 snapshot OR CS 1's BoxState.to_dict()
 get_state() converts the second kind into the first (from_box_state).
 
 4.1 additions (no contract change, all optional):
-  wind_mph, rain_in           new sensors from PROJECT_PLAN §5
+  wind_mph                    new sensor from PROJECT_PLAN §5
+  rain_in                     ONLY a real rain gauge (readings.rain_in). The firmware's "rain" field is the
+                              floor moisture percent, so it is never read as inches
+  floor_pct                   optional floor moisture percent; otherwise computed from the raw "water" reading
   household {"people","pets"} + supplies {"water_gallons"}   for water_calculator
   outages {"last_lost","last_restored"}                      for get_outages
 """
@@ -38,7 +41,7 @@ def set_checkin_writer(fn):
 
 # ---------------------------------------------------------------- state
 EMPTY_STATE = {"ts": None, "source": "live", "pressure_hpa": None, "temp_c": None,
-               "humidity": None, "water": None, "wind_mph": None, "rain_in": None,
+               "humidity": None, "water": None, "floor_pct": None, "wind_mph": None, "rain_in": None,
                "wall_power": 1, "alarms": [], "storm": {}, "battery": {}}
 
 
@@ -56,7 +59,8 @@ def from_box_state(d):
         "ts": d.get("ts"),
         "source": d.get("src", "live"),
         "pressure_hpa": r.get("p"), "temp_c": r.get("temp"), "humidity": r.get("hum"),
-        "water": r.get("water"), "wind_mph": _wind_to_mph(r.get("wind")), "rain_in": r.get("rain"),
+        "water": r.get("water"), "wind_mph": _wind_to_mph(r.get("wind")), "rain_in": r.get("rain_in"),
+        "floor_pct": r.get("floor_pct"),
         "wall_power": 1 if p.get("wall", True) else 0,
         "alarms": [{"id": a["id"], "level": a.get("level", "alarm"), "since": a.get("since")}
                    for a in d.get("alarms", [])],
@@ -91,11 +95,27 @@ def sea_level_pressure(state):
     return runtime.to_sea_level(p, config.ALTITUDE_M, t if t is not None else 25.0) + config.CAL_OFFSET_HPA
 
 
+def floor_state(state):
+    """The floor moisture sensor in words: "wet" when the flood alarm is on, else from the percent
+    (floor_pct, or the raw "water" reading converted with the firmware's calibration). None = no reading."""
+    if any(a.get("id") == "flood" for a in state.get("alarms") or []):
+        return "wet"
+    pct = state.get("floor_pct")
+    raw = state.get("water")
+    if pct is None and raw is not None:
+        span = config.FLOOR_WET_RAW - config.FLOOR_DRY_RAW
+        pct = (raw - config.FLOOR_DRY_RAW) * 100 / span
+    if pct is None:
+        return None
+    return "wet" if pct >= config.FLOOR_WET_PCT else "damp" if pct >= config.FLOOR_DAMP_PCT else "dry"
+
+
 def get_sensors():
     """Raw readings plus pressure_sea_level_hpa (use that one when talking to people)."""
     s = get_state()
-    out = {k: s.get(k) for k in ("pressure_hpa", "temp_c", "humidity", "water",
+    out = {k: s.get(k) for k in ("pressure_hpa", "temp_c", "humidity",
                                  "wind_mph", "rain_in", "wall_power", "source")}
+    out["floor"] = floor_state(s)             # "dry" | "damp" | "wet" | None (never the raw number)
     out["pressure_sea_level_hpa"] = sea_level_pressure(s)
     return out
 

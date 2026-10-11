@@ -43,7 +43,19 @@ agent.warm_up()                                   # once, at startup: loads mode
 - Also useful if you have them: `household`, `supplies`.
 - **Wind is in m/s** in `readings.wind` (what the sensor reports). The agent converts to mph when it
   speaks (setting `WIND_RAW_UNIT` in `ai/agent/config.py`). Convert to mph only on the dashboard.
-- Without `readings.wind` / `readings.rain`, the "weather outside" answer has no outside readings.
+- **Which sensor fields the agent reads** (the box has **no rain gauge**):
+  - `readings.water` = the floor moisture sensor, raw ADC value. The agent turns it into **dry / damp / wet**
+    ("The floor is dry.") with the firmware's calibration (`FLOOR_*` in `ai/agent/config.py`, same numbers as
+    `esp32/src/main.cpp`: damp from 10%, wet from 70%). Wet whenever the flood alarm is on. It never speaks the raw
+    number or the percent.
+  - `readings.floor_pct` (optional) = the moisture percent, if you already have it. It wins over `water`.
+  - `readings.rain_in` = rainfall in inches. **Only a real rain gauge should send this** (none exists yet).
+    Without it the agent never talks about rainfall. If someone asks "is it raining?" it says the box has no rain gauge.
+  - `readings.rain` is **ignored**. Today's firmware sends the floor moisture percent in `rain`, so reading it as
+    inches was a bug ("45 inches of rain"). When EE adds a real gauge, send it as `rain_in`, not `rain`.
+  - The dashboard's "Rain (in)" tile has the same problem: it shows that percent as inches. Hide it, or show it as
+    floor moisture, until there is a real gauge.
+- Without `readings.wind`, the "weather outside" answer has no wind reading.
 - Return a fresh snapshot (or a copy), not a dict that another thread is mutating.
 - If no provider is set, the agent sees an empty box and answers guide questions only.
 

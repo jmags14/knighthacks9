@@ -29,7 +29,7 @@ def make_state(name):
     base = {
         "ts": datetime.now(timezone.utc).isoformat(), "source": "live",
         "pressure_hpa": 1015.0, "temp_c": 29.0, "humidity": 70, "water": 20,
-        "wind_mph": 6, "rain_in": 0.0, "wall_power": 1, "alarms": [],
+        "wind_mph": 6, "wall_power": 1, "alarms": [],
         "storm": {"phase": "steady", "risk": 0.02, "alert": False,
                   "reason": "Storm risk 2% because pressure now is 1015.0 hPa (above 1012.7).",
                   "model_version": "storm-risk-20261009"},
@@ -43,7 +43,7 @@ def make_state(name):
         base["storm"].update(phase="falling", risk=0.98, alert=True,
                              reason="Storm risk 98% because pressure now is 996.0 hPa (at or below 1007.6).")
     elif name == "flood":
-        base.update(water=640, alarms=[{"id": "flood", "level": "alarm", "since": base["ts"]}])
+        base.update(water=2300, alarms=[{"id": "flood", "level": "alarm", "since": base["ts"]}])
     elif name == "hot":         # AC off: 92 F inside at 70% humidity
         base.update(temp_c=33.3, humidity=70, wall_power=0)
     elif name == "eye":

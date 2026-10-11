@@ -25,7 +25,7 @@ def clean_globals():
 def make_state(**over):
     """A calm AGENT_PLAN 4.1 box state; override any key."""
     s = {"source": "live", "pressure_hpa": 1015.0, "temp_c": 29.0, "humidity": 70, "water": 20,
-         "wind_mph": 5, "rain_in": 0.0, "wall_power": 1, "alarms": [],
+         "wind_mph": 5, "wall_power": 1, "alarms": [],
          "storm": {"phase": "steady", "risk": 0.02, "alert": False, "reason": "Storm risk 2% because test.",
                    "model_version": "t"},
          "battery": {"hours_left": 18.0}, "household": {"people": 3, "pets": 1},

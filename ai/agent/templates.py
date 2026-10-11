@@ -293,9 +293,11 @@ def weather_text(s, storm, source="live", focus=None):
     if s.get("wind_mph") is not None:
         w = s["wind_mph"]
         sections["wind"] = f"Outside, wind is {w:.0f} miles per hour, {_wind_meaning(w)}."
-    if s.get("rain_in") is not None:
+    if s.get("rain_in") is not None:                            # only a real rain gauge; the floor sensor is not one
         sections["rain"] = ("The rain gauge shows no rain." if s["rain_in"] <= 0
                             else f"The rain gauge shows {s['rain_in']:.1f} inches of rain.")
+    elif focus == "rain":
+        sections["rain"] = "This box doesn't have a rain gauge, so I can't measure rainfall."
     if p is not None:
         trend = pressure_trend(storm.get("phase"))
         text = f"Pressure is {p:.0f} hectopascals" + (f" and {trend}." if trend else ".")
@@ -306,6 +308,8 @@ def weather_text(s, storm, source="live", focus=None):
         if s.get("humidity") is not None:
             inside += f", with {s['humidity']:.0f} percent humidity"
         sections["temperature"] = inside + "." + _feels_like_sentence(s)
+    if s.get("floor"):
+        sections["floor"] = f"The floor is {s['floor']}."
     risk = storm.get("risk")
     sections["risk"] = ("Storm risk is still warming up." if risk is None
                         else f"Storm risk score is {round(100 * risk)} percent.")
@@ -315,8 +319,15 @@ def weather_text(s, storm, source="live", focus=None):
         parts = [sections[focus], "Here are the other readings."] + rest
     else:
         parts = ["Here's what the box is reading."] + list(sections.values())
-    parts.append("Temperature and humidity are indoor readings. Pressure, wind and rain tell you what "
-                 "is happening outside.")
+    outside = [name for name, there in (("pressure", p is not None), ("wind", s.get("wind_mph") is not None),
+                                        ("rain", s.get("rain_in") is not None)) if there]
+    tail = ""
+    if outside:
+        names = outside[0].capitalize() if len(outside) == 1 else (
+            ", ".join(outside[:-1]).capitalize() + " and " + outside[-1])
+        tail = f" {names} tell you what is happening outside." if len(outside) > 1 else (
+            f" {names} tells you what is happening outside.")
+    parts.append("Temperature and humidity are indoor readings." + tail)
     return replay_say(" ".join(parts), source)
 
 
@@ -336,6 +347,8 @@ def sensors_text(s, source="live"):
         parts.append(f"wind {s['wind_mph']:.0f} miles per hour")
     if s.get("rain_in") is not None:
         parts.append(f"rain {s['rain_in']:.1f} inches")
+    if s.get("floor"):
+        parts.append(f"the floor is {s['floor']}")
     if not parts:
         return "I don't have sensor readings yet."
     return replay_say("Right now: " + ", ".join(parts) + ".", source)

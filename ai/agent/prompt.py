@@ -60,6 +60,7 @@ def readings_line(state):
         "temperature: " + _num(state.get("temp_c"), "C", "inside the house"),
         "humidity: " + _num(state.get("humidity"), "%", "inside the house"),
         "wind: " + _num(state.get("wind_mph"), "mph"),
+        "floor: " + (tools.floor_state(state) or "not measured"),
         f"active alarms: {alarms}",
         "wall power: " + ("ON" if state.get("wall_power") else "OFF"),
         "data: " + ("REPLAY of a past storm" if state.get("source") == "replay" else "live"),

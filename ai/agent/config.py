@@ -43,6 +43,13 @@ STORM_V2_DIR = ROOT / "ai" / "ml" / "v2"
 STORM_V2_FILES = {"pressure": "storm_risk_pressure.json", "wind": "storm_risk_wind.json",
                   "both": "storm_risk_both.json"}
 
+# --- Floor moisture sensor (the box has no rain gauge) ---
+# Same calibration as esp32/src/main.cpp (WATER_DRY / WATER_WET / RAIN_LIGHT_PCT / WATER_ALARM_PCT): keep in sync.
+FLOOR_DRY_RAW = 0               # raw ADC reading when dry
+FLOOR_WET_RAW = 2500            # raw ADC reading when soaked
+FLOOR_DAMP_PCT = 10             # at or above this percent the floor is "damp"
+FLOOR_WET_PCT = 70              # at or above this percent (the flood alarm level) it is "wet"
+
 # --- Water calculator ---
 GAL_PER_PERSON_DAY = 1.0        # Ready.gov
 PET_GAL = 0.25                  # gallons per pet per day (check pets.md)
