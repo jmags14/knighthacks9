@@ -316,6 +316,105 @@ def _run_v2(name, p_rows, w_rows, source, altitude, offset):
             "sea_level_hourly": [round(p, 1) for p in hist.get("p", [])]}
 
 
+# ================================================================ replay timeline (for the dashboard chart)
+_V2_REPLAY_DIR = config.STORM_V2_DIR / "replay"
+_V1_REPLAY_DIR = Path(__file__).with_name("replay")
+ROWS_PER_HOUR = 6                   # replay files have one row per 10 minutes
+_timeline_cache = {}
+
+
+def _resolve_replay_csv(csv_path):
+    """A path, or a bare file name from the replay menu (index.json), -> existing .csv Path."""
+    p = Path(csv_path)
+    if p.name == str(csv_path):                           # bare name: only the two replay folders are searched
+        p = next((d / p.name for d in (_V2_REPLAY_DIR, _V1_REPLAY_DIR) if (d / p.name).is_file()), p)
+    if p.suffix.lower() != ".csv":
+        raise ValueError(f"not a replay csv: {csv_path!r}")
+    if not p.is_file():
+        raise FileNotFoundError(f"replay file not found: {csv_path!r}")
+    return p.resolve()
+
+
+def _replay_index_entry(path):
+    """index.json row for this file name, or {} (old v1 files are not listed)."""
+    try:
+        import json
+        with open(_V2_REPLAY_DIR / "index.json", encoding="utf-8") as f:
+            return next((e for e in json.load(f) if e.get("file") == path.name), {})
+    except (OSError, ValueError):
+        return {}
+
+
+def _num(s):
+    return float(s) if s not in (None, "") else None
+
+
+def replay_timeline(csv_path, mode=None):
+    """The whole risk curve of a recorded storm, one entry per simulated hour. Pure computation: no events,
+    no speech, no ESP32, no live state, so a dashboard can scrub through it without triggering anything.
+
+    csv_path   path, or a bare file name from the replay menu (e.g. "nicole_2022_cdrf1.csv")
+    mode       "v1" | "auto"; default config.STORM_REPLAY_MODEL (the same choice live replay makes)
+
+    Returns {"file", "storm", "year", "station", "closest_time", "closest_km",   # None if not in index.json
+             "model", "threshold", "hours_needed", "timeline": [...]}
+    Each timeline entry: {"sim_time", "pressure_hpa", "wind_ms", "gust_ms",       # readings at the hour's last row
+                          "risk", "alert", "model", "path", "status", "hours_ready", "hours_needed"}
+    status is "ok" or "warming up" (risk None; hours_ready counts up to hours_needed). Each entry is the
+    result run_storm_job gives after that hour of a live replay, so the chart matches what the box shows.
+    The result is cached per file, so repeat calls are instant (every call returns its own copy).
+    """
+    import copy
+    path = _resolve_replay_csv(csv_path)
+    mode = mode or config.STORM_REPLAY_MODEL
+    key = (str(path), mode, path.stat().st_mtime_ns)
+    if key not in _timeline_cache:
+        _timeline_cache[key] = _build_timeline(path, mode)
+    return copy.deepcopy(_timeline_cache[key])
+
+
+def _build_timeline(path, mode):
+    import csv
+    with open(path, newline="", encoding="utf-8") as f:
+        raw = list(csv.DictReader(f))
+    rows = []
+    for r in raw:
+        row = {"ts": r["ts"], "pressure_hpa": float(r["pressure_hpa"])}
+        wind, gust = _num(r.get("wind_ms")), _num(r.get("gust_ms"))
+        if wind is not None:
+            row["wind_ms"] = wind
+        if gust is not None:
+            row["gust_ms"] = gust
+        rows.append(row)
+
+    timeline = []
+    for end in range(ROWS_PER_HOUR, len(rows) + 1, ROWS_PER_HOUR):
+        res = run_storm_job(rows[:end], source="replay", mode=mode)
+        last = rows[end - 1]
+        ok = res["status"] == "ok"
+        timeline.append({
+            "sim_time": last["ts"], "pressure_hpa": last["pressure_hpa"],
+            "wind_ms": last.get("wind_ms"), "gust_ms": last.get("gust_ms"),
+            "risk": res["risk"], "alert": bool(res["alert"]), "model": res.get("model"),
+            "path": res.get("path", []), "status": res["status"],
+            "hours_ready": HOURS_NEEDED if ok else res.get("hours_have", 0), "hours_needed": HOURS_NEEDED})
+
+    model = next((e["model"] for e in timeline if e["model"]), None)
+    if model in ("wind", "both"):                         # v2 models carry their own alert line
+        threshold = load_v2(model)["threshold"]
+    elif model == "pressure":                             # pressure-only runs the original v1 model
+        threshold = load_model()["threshold"]
+    else:
+        threshold = None
+    meta = _replay_index_entry(path)
+    closest = meta.get("closest_time")                    # same format as sim_time so the chart can compare
+    closest = _parse_ts(closest).strftime("%Y-%m-%dT%H:%M:%SZ") if closest else None
+    return {"file": path.name, "storm": meta.get("storm"), "year": meta.get("year"),
+            "station": meta.get("station"), "closest_time": closest,
+            "closest_km": meta.get("closest_km"), "model": model, "threshold": threshold,
+            "hours_needed": HOURS_NEEDED, "timeline": timeline}
+
+
 # ---------------------------------------------------------------- demo: python ai/ml/storm_job.py
 if __name__ == "__main__":
     import csv

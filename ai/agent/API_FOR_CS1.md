@@ -184,6 +184,32 @@ result = run_storm_job(readings, source="live")     # call about once a minute; 
   hour (every 6 rows of 10 minutes), not once per real minute. Replay files: `ai/ml/v2/replay/*.csv`
   (`ts,pressure_hpa,wind_ms,gust_ms`) listed in `ai/ml/v2/replay/index.json`. Tree JSON for the
   dashboard: `ai/ml/storm_risk.json` (pressure) or `ai/ml/v2/storm_risk_<wind|both>.json`.
+- **Replay timeline for the chart** (`replay_timeline`): the whole risk curve of a recorded storm in one call,
+  so the dashboard can draw the graph and scrub a cursor over it:
+  ```python
+  from ai.ml.storm_job import replay_timeline
+  r = replay_timeline("nicole_2022_cdrf1.csv")     # a file name from index.json, or a full path
+  # r = {"file", "storm", "year", "station",
+  #      "closest_time": "2022-11-10T19:00:00Z",   # None if the file is not in index.json
+  #      "closest_km", "model": "both", "threshold": 0.64, "hours_needed": 7,
+  #      "timeline": [ {"sim_time": "2022-11-09T07:50:00Z", "pressure_hpa": 1019.6, "wind_ms": 6.1,
+  #                     "gust_ms": 8.2, "risk": None, "alert": False, "model": "both", "path": [],
+  #                     "status": "warming up", "hours_ready": 1, "hours_needed": 7}, ... ] }
+  ```
+  - **One entry per simulated hour** (every 6 rows, taken at the hour's last row). Each entry is exactly what
+    `run_storm_job` gives after that hour of a live replay, so the chart matches what the box shows. Nicole = 54 entries.
+  - **Warming up:** the first 6 entries have `status: "warming up"`, `risk: None` and `hours_ready` 1..6 of
+    `hours_needed` (7). Shade that part of the chart. Later entries are `status: "ok"` with `risk`, `alert` and the
+    tree `path` (draw the tree from the JSON for `model`, see above).
+  - **Chart lines:** draw `threshold` as the alert line (it comes from the model that ran: 0.64 for "both"),
+    and `closest_time` as the closest-approach marker. `closest_time` uses the same format as `sim_time`
+    (`YYYY-MM-DDTHH:MM:SSZ`), so you can compare or plot them directly.
+  - **Same model choice as the live replay:** `STORM_REPLAY_MODEL` ("auto" = "both" if the CSV has wind). Pressure-only
+    old files (`ai/ml/replay/`) return `model: "pressure"` and `wind_ms`/`gust_ms` of `None`. A bare file name is looked
+    up in `ai/ml/v2/replay/` first, then `ai/ml/replay/`. Bad names raise `ValueError` / `FileNotFoundError`.
+  - **Pure computation:** no events, no speech, no ESP32, no change to the box state, so scrubbing can never fire an
+    alarm. The first call takes about 0.1 s (the result is then cached; each call returns its own copy), so call it
+    once when a storm is picked, and from `run_in_executor` if you call it on the event loop.
 - No hardware needed to see it working: `python ai/scripts/replay_check.py` (table of a whole storm)
   and `python ai/scripts/replay_check.py --at 30 -q "Is the storm over?"` (agent at hour 30).
 
