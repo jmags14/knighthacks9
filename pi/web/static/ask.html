@@ -142,6 +142,61 @@
     #send-btn:disabled { opacity: 0.4; cursor: default; }
     #send-btn:active:not(:disabled) { background: #0d47a1; }
 
+    /* ── Voice: mic button, status line, "heard by Whisper" note ── */
+    #mic-btn {
+      width: 44px; height: 44px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--surface); color: var(--text);
+      border: 1.5px solid #333; border-radius: 50%;
+      cursor: pointer; -webkit-tap-highlight-color: transparent;
+    }
+    #mic-btn svg { width: 20px; height: 20px; }
+    #mic-btn:active:not(:disabled) { background: #2a2a2a; }
+    #mic-btn:disabled { opacity: 0.4; cursor: default; }
+    #mic-btn.unavailable { opacity: 0.45; }
+    #mic-btn.recording {
+      background: #c62828; border-color: #c62828; color: #fff;
+      animation: mic-pulse 1.2s ease-in-out infinite;
+    }
+    #mic-btn.busy { opacity: 0.6; cursor: default; }
+    @keyframes mic-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.55); }
+      70%  { box-shadow: 0 0 0 10px rgba(198, 40, 40, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0); }
+    }
+    @media (prefers-reduced-motion: reduce) { #mic-btn.recording { animation: none; } }
+    .voice-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.35rem; }
+    .voice-status {
+      flex: 1; min-height: 1.1rem;
+      font-size: 0.78rem; color: var(--muted); line-height: 1.3;
+    }
+    .speak-toggle {
+      display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0;
+      font-size: 0.72rem; color: var(--muted); cursor: pointer; user-select: none;
+    }
+    .speak-toggle input { accent-color: #1565c0; }
+
+    /* 🔊 button under every answer */
+    .answer-tools { padding: 0.2rem 0.5rem 0 0.5rem; }
+    .speak-btn {
+      width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+      background: transparent; color: var(--muted);
+      border: 1.5px solid #333; border-radius: 50%;
+      cursor: pointer; -webkit-tap-highlight-color: transparent;
+    }
+    .speak-btn svg { width: 15px; height: 15px; }
+    .speak-btn:active { background: var(--surface); }
+    .speak-btn.loading { opacity: 0.55; animation: speak-blink 1s ease-in-out infinite; }
+    .speak-btn.playing { color: #fff; background: #1565c0; border-color: #1565c0; }
+    @keyframes speak-blink { 50% { opacity: 0.25; } }
+    @media (prefers-reduced-motion: reduce) { .speak-btn.loading { animation: none; } }
+    .voice-status.recording { color: #ef5350; }
+    .voice-status.error { color: #ff8a80; }
+    .voice-note {
+      font-size: 0.7rem; color: var(--muted);
+      text-align: right; padding: 0 0.5rem 0.4rem 0;
+    }
+
     /* ── Bottom nav bar ── */
     .nav-bar {
       position: fixed;
@@ -188,7 +243,16 @@
   </div>
 
   <div class="input-bar">
+    <div class="voice-row">
+      <div class="voice-status" id="voice-status" role="status" aria-live="polite"></div>
+      <label class="speak-toggle" id="auto-speak-label" title="Speak every new answer out loud">
+        <input type="checkbox" id="auto-speak"> Read answers aloud
+      </label>
+    </div>
     <div class="input-row">
+      <button id="mic-btn" type="button" aria-label="Ask by voice" aria-pressed="false" title="Ask by voice">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg>
+      </button>
       <input type="text" id="ask-input" placeholder="Ask the box anything…" autocomplete="off" />
       <button id="send-btn">Send</button>
     </div>
@@ -214,6 +278,7 @@
   </nav>
 
   <script src="js/state.js"></script>
+  <script src="js/voice.js"></script>
   <script>
     var input       = document.getElementById("ask-input");
     var sendBtn     = document.getElementById("send-btn");
@@ -232,6 +297,16 @@
       inner.textContent = text;
       div.appendChild(inner);
       messages.appendChild(div);
+      scrollBottom();
+      return div;
+    }
+
+    // Small grey line under a spoken question: which engine heard it and how long it took.
+    function addVoiceNote(sttMs) {
+      var note = document.createElement("div");
+      note.className = "voice-note";
+      note.textContent = "Heard by Whisper (offline) in " + (sttMs / 1000).toFixed(1) + " s";
+      messages.appendChild(note);
       scrollBottom();
     }
 
@@ -261,10 +336,15 @@
       return el;
     }
 
-    function updateBotBubble(wrap, text, sources) {
+    function updateBotBubble(wrap, text, sources, traceId) {
       var div = wrap.querySelector(".bubble");
       div.className = "bubble bot";
       div.querySelector(".bubble-inner").textContent = text;
+      var oldTools = wrap.querySelector(".answer-tools");
+      if (oldTools) oldTools.remove();
+      if (traceId != null && ttsReady) {                   // a real answer (not an error message): add the 🔊 button
+        div.parentNode.insertBefore(makeSpeakTools(text, traceId), div.nextSibling);
+      }
       var old = wrap.querySelector(".sources");
       if (old) old.remove();
       if (sources && sources.length) {
@@ -274,17 +354,21 @@
       scrollBottom();
     }
 
-    function send() {
+    // voice (optional) = {stt_ms} when the question was spoken. Typed questions call send() with nothing.
+    function send(voice) {
       var text = input.value.trim();
       if (!text || sendBtn.disabled) return;
       input.value = "";
 
+      stopSpeaking();
       addUserBubble(text);
+      if (voice) addVoiceNote(voice.stt_ms);
       suggestions.style.display = "none";
       var thinkingWrap = addBotBubble("Thinking…", [], true);
 
       input.disabled  = true;
       sendBtn.disabled = true;
+      micBtn.disabled  = true;          // no recording while the agent is thinking
 
       var controller = new AbortController();
       var timer = setTimeout(function() { controller.abort(); }, 60000);
@@ -292,7 +376,9 @@
       fetch("/api/ask", {
         method:  "POST",
         headers: {"Content-Type": "application/json"},
-        body:    JSON.stringify({text: text}),
+        body:    JSON.stringify(voice
+                   ? {text: text, channel: "voice", stt_ms: voice.stt_ms}
+                   : {text: text}),
         signal:  controller.signal,
       })
         .then(function(r) {
@@ -301,7 +387,12 @@
           return r.json();
         })
         .then(function(data) {
-          updateBotBubble(thinkingWrap, data.answer || "(no answer)", data.sources || []);
+          updateBotBubble(thinkingWrap, data.answer || "(no answer)", data.sources || [], data.trace_id);
+          dbg("answer arrived. auto-read ticked:", autoSpeak.checked, "| channel:", voice ? "voice" : "typed",
+              "| speaker button present:", !!thinkingWrap.querySelector(".speak-btn"));
+          if (autoSpeak.checked && data.answer && data.trace_id != null) {
+            toggleSpeak(thinkingWrap.querySelector(".speak-btn"), data.answer, data.trace_id);
+          }
         })
         .catch(function() {
           clearTimeout(timer);
@@ -314,6 +405,7 @@
         .finally(function() {
           input.disabled  = false;
           sendBtn.disabled = false;
+          micBtn.disabled  = false;
           input.focus();
         });
     }
@@ -331,7 +423,173 @@
     input.addEventListener("keydown", function(e) {
       if (e.key === "Enter") send();
     });
-    sendBtn.addEventListener("click", send);
+    sendBtn.addEventListener("click", function() { send(); });
+
+    // ── Voice: tap the mic to start, tap again to stop. The words are transcribed offline by
+    //    Whisper on the box, put in the chat, and sent automatically.
+    var micBtn      = document.getElementById("mic-btn");
+    var voiceStatus = document.getElementById("voice-status");
+    var micState    = "idle";           // idle | recording | transcribing
+    var micBlocked  = null;             // reason text when voice cannot work here (HTTPS, models, browser)
+
+    function setVoice(state, text, kind) {
+      micState = state;
+      micBtn.classList.toggle("recording", state === "recording");
+      micBtn.classList.toggle("busy", state === "transcribing");
+      micBtn.setAttribute("aria-pressed", state === "recording" ? "true" : "false");
+      micBtn.setAttribute("aria-label", state === "recording" ? "Stop recording" : "Ask by voice");
+      voiceStatus.className = "voice-status" + (kind ? " " + kind : "");
+      voiceStatus.textContent = text || "";
+      input.disabled   = (state !== "idle");
+      sendBtn.disabled = (state !== "idle");
+    }
+
+    function micFail(message) {
+      setVoice("idle", message, "error");
+      input.focus();
+    }
+
+    function stopAndSend() {
+      StormVoice.stop().then(function(rec) {
+        if (!rec) { setVoice("idle", ""); return; }
+        if (rec.seconds < StormVoice.MIN_SECONDS) { micFail("That was too short. Tap the mic and speak, then tap again."); return; }
+        setVoice("transcribing", "Transcribing…");
+        return StormVoice.transcribe(rec.blob).then(function(result) {
+          var text = (result.text || "").trim();
+          if (!/[a-z0-9]/i.test(text)) { micFail("I didn't hear anything. Tap the mic and try again."); return; }
+          setVoice("idle", "");
+          input.value = text;             // the words appear in the chat box...
+          send({stt_ms: result.stt_ms});  // ...and are sent right away
+        });
+      }).catch(function(e) { micFail(e.message || "Voice failed. Please try again."); });
+    }
+
+    micBtn.addEventListener("click", function() {
+      if (micBlocked) { voiceStatus.className = "voice-status error"; voiceStatus.textContent = micBlocked; return; }
+      if (micState === "recording") { stopAndSend(); return; }
+      if (micState !== "idle" || micBtn.disabled) return;
+      stopSpeaking();                   // don't let the box's own voice leak into the recording
+      setVoice("idle", "Starting the microphone…");
+      StormVoice.start(
+        function(secs) { voiceStatus.textContent = "Listening… " + secs.toFixed(0) + " s (tap the mic to stop)"; },
+        stopAndSend                               // hit the time limit: stop and send automatically
+      ).then(function() {
+        setVoice("recording", "Listening… (tap the mic to stop)", "recording");
+      }, function(e) { micFail(e.message); });
+    });
+
+    // Decide once, at load, whether the mic can work here. Typing always works.
+    (function() {
+      var s = StormVoice.supported();
+      if (!s.ok) { micBlocked = s.reason; micBtn.classList.add("unavailable"); return; }
+      fetch("/api/voice/status").then(function(r) { return r.json(); }).then(function(v) {
+        if (!v.tts_ready) {                       // no Piper voice: hide the speaker features
+          ttsReady = false;
+          document.getElementById("auto-speak-label").style.display = "none";
+        }
+        if (!v.stt_ready) {
+          micBlocked = "Voice models are not installed on the box. Run: python ai/scripts/download_voice_models.py";
+          micBtn.classList.add("unavailable");
+        }
+      }).catch(function() { /* old server without voice routes: leave the button; the click will explain */ });
+    })();
+
+    window.addEventListener("pagehide", function() { StormVoice.cancel(); stopSpeaking(); });   // release the mic
+
+    // ── Speaking answers (Piper, offline). One answer plays at a time; clicking the playing one stops it.
+    //    The audio for each answer is fetched once and kept, so replaying is instant.
+    // Debug lines for the Console (F12). They help find why a sound did not play on a given machine.
+    function dbg() { try { console.log.apply(console, ["[speak]"].concat([].slice.call(arguments))); } catch (e) {} }
+
+    var ttsReady    = true;             // set false if the server says the Piper voice is missing
+    var autoSpeak   = document.getElementById("auto-speak");
+    var currentBtn  = null;             // the 🔊 button whose answer is loading or playing
+    var currentAudio = null;
+
+    var ICON_SPEAKER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>';
+    var ICON_STOP    = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
+    function setSpeakState(btn, state) {                  // idle | loading | playing
+      btn.classList.toggle("loading", state === "loading");
+      btn.classList.toggle("playing", state === "playing");
+      btn.innerHTML = state === "playing" ? ICON_STOP : ICON_SPEAKER;
+      var label = state === "playing" ? "Stop reading" : "Read this answer aloud";
+      btn.setAttribute("aria-label", label);
+      btn.title = state === "loading" ? "Preparing speech…" : label;
+    }
+
+    function stopSpeaking() {
+      if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+      if (currentBtn) { setSpeakState(currentBtn, "idle"); currentBtn = null; }
+    }
+
+    // Text -> audio URL. Piper cleans the text first (no "hPa", no source lines). Cached on the button.
+    function getAudioUrl(btn, text, traceId) {
+      if (btn._url) return Promise.resolve(btn._url);
+      if (btn._pending) return btn._pending;
+      btn._pending = fetch("/api/voice/tts", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({text: text, trace_id: traceId})      // trace_id: saves the speech time in the trace
+      }).then(function(r) {
+        if (r.ok) return r.blob();
+        return r.json().then(function(j) { throw new Error(j.detail || "Could not make speech."); },
+                             function() { throw new Error("Could not make speech (HTTP " + r.status + ")."); });
+      }).then(function(blob) {
+        btn._url = URL.createObjectURL(blob);
+        btn._pending = null;
+        return btn._url;
+      }, function(e) { btn._pending = null; throw e; });
+      return btn._pending;
+    }
+
+    function toggleSpeak(btn, text, traceId) {
+      if (!btn) return;
+      if (currentBtn === btn) { dbg("clicked again -> stop"); stopSpeaking(); return; }   // second click = stop
+      stopSpeaking();                                              // only one answer at a time
+      currentBtn = btn;
+      setSpeakState(btn, "loading");
+      dbg("start, trace", traceId, btn._url ? "(cached audio)" : "(fetching audio)");
+      getAudioUrl(btn, text, traceId).then(function(url) {
+        if (currentBtn !== btn) { dbg("another button took over while loading"); return; }   // user clicked something else
+        var audio = new Audio(url);
+        currentAudio = audio;
+        ["play", "playing", "pause", "ended", "error", "stalled"].forEach(function(ev) {
+          audio.addEventListener(ev, function() {
+            dbg("audio event:", ev, "t=" + audio.currentTime.toFixed(2), "of " + (audio.duration || 0).toFixed(2) + " s",
+                "volume=" + audio.volume, "muted=" + audio.muted);
+          });
+        });
+        audio.onended = function() { if (currentBtn === btn) stopSpeaking(); };
+        setSpeakState(btn, "playing");
+        return audio.play().then(function() { dbg("play() accepted"); });
+      }).catch(function(e) {
+        dbg("FAILED:", e && e.name, e && e.message);
+        if (currentBtn === btn) { currentBtn = null; currentAudio = null; setSpeakState(btn, "idle"); }
+        voiceStatus.className = "voice-status error";
+        voiceStatus.textContent = (e && e.name === "NotAllowedError")
+          ? "Your browser blocked automatic sound. Tap the speaker button under the answer to hear it."
+          : (e.message || "Could not play that answer.");
+      });
+    }
+
+    function makeSpeakTools(text, traceId) {
+      var tools = document.createElement("div");
+      tools.className = "answer-tools";
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "speak-btn";
+      setSpeakState(btn, "idle");
+      btn.addEventListener("click", function() { toggleSpeak(btn, text, traceId); });
+      tools.appendChild(btn);
+      return tools;
+    }
+
+    // Remember the "Read answers aloud" choice in this browser (storage can be blocked: ignore errors).
+    try { autoSpeak.checked = localStorage.getItem("stormbox.autoSpeak") === "1"; } catch (e) {}
+    autoSpeak.addEventListener("change", function() {
+      try { localStorage.setItem("stormbox.autoSpeak", autoSpeak.checked ? "1" : "0"); } catch (e) {}
+      if (!autoSpeak.checked) stopSpeaking();
+    });
 
     connectState(function(state) {
       var el = document.getElementById("status-label");

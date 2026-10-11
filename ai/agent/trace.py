@@ -38,6 +38,7 @@ class Trace:
         self.model = None
         self.answer = ""
         self.canned_score = None
+        self.t0 = time.perf_counter()   # when the agent started on this question
 
     @contextmanager
     def step(self, name):
@@ -63,6 +64,7 @@ class Trace:
         """Store the row and return its trace_id."""
         global _next_id
         self.answer, self.route = answer, route
+        self.timings["agent"] = round((time.perf_counter() - self.t0) * 1000, 1)   # whole agent time
         row = self.to_row()
         trace_id = _save_sqlite(row)
         if trace_id is None:                    # no database: use a memory counter
@@ -96,6 +98,36 @@ def _save_sqlite(row):
 def _exists(path):
     import os
     return os.path.exists(str(path))
+
+
+def add_timings(trace_id, extra):
+    """Add steps that happen OUTSIDE the agent to a saved trace, e.g. {"stt": 812.0} (speech to text,
+    measured before the question reached the agent) or {"tts": 420.0} (speaking the answer, after it).
+    Updates the in-memory copy and the SQLite row. Returns True if the trace was found."""
+    found = False
+    row = _recent.get(trace_id)
+    if row:
+        merged = {**json.loads(row["timings_json"]), **extra}
+        row["timings_json"] = json.dumps(merged)
+        row["_trace"].timings.update(extra)
+        found = True
+    if _db_path and _exists(_db_path):
+        try:
+            con = sqlite3.connect(str(_db_path), timeout=2)
+            try:
+                cur = con.execute("SELECT timings_json FROM agent_traces WHERE id = ?", (trace_id,))
+                db_row = cur.fetchone()
+                if db_row:
+                    merged = {**json.loads(db_row[0] or "{}"), **extra}
+                    con.execute("UPDATE agent_traces SET timings_json = ? WHERE id = ?",
+                                (json.dumps(merged), trace_id))
+                    con.commit()
+                    found = True
+            finally:
+                con.close()
+        except sqlite3.Error:
+            pass
+    return found
 
 
 def get(trace_id):

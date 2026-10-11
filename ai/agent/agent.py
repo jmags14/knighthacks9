@@ -106,8 +106,10 @@ def warm_up():
 
 
 # ---------------------------------------------------------------- entry point 1: questions
-def answer(text, channel="chat"):
+def answer(text, channel="chat", timings=None):
+    """timings: optional steps measured before the agent, e.g. {"stt": 812.0} for a spoken question."""
     tr = Trace(channel, text)
+    tr.timings.update(timings or {})
     state = tools.get_state()
     tr.sensors = _sensor_summary(state)
     text = (text or "").strip()
