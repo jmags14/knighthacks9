@@ -36,6 +36,7 @@ from pi.box_service.service import BoxService, SerialSource
 from pi.box_service import serialport, mqttsource
 
 from ai.agent.api import router as agent_router
+from ai.voice import api as voice_api              # mic button + speaker buttons (offline Whisper / Piper)
 from ai.agent import tools as agent_tools
 from ai.agent import agent as agent_module
 
@@ -137,6 +138,7 @@ async def lifespan(app: FastAPI):
     # Warm up the agent (loads embedding model + LLM) in a background thread
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, agent_module.warm_up)
+    loop.run_in_executor(None, voice_api.warm_up)     # Whisper + Piper, so the first mic press is fast
 
     print(f"[web] StormBox ready  dev={dev_mode}  port=8000")
 
@@ -155,6 +157,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(agent_router)
+app.include_router(voice_api.router)
 
 
 # ------------------------------------------------------------------ WebSocket
