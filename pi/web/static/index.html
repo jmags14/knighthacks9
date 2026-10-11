@@ -436,7 +436,7 @@
         feelsTile,
         tile("Temperature",        tempF,           "heat"),
         tile("Humidity",           humStr,          "heat"),
-        tile("Floor",              floorHtml,       "flood"),
+        tile("Floor water",        floorHtml,       "flood"),
       ].join("");
     }
 
@@ -546,8 +546,11 @@
       if (!esp32Up) {
         // ESP32 offline — grey card, no alarm controls
         card.className             = "card off" + (noAlarm ? " no-alarm" : "");
-        cardTitle.textContent      = "Sensors offline";
-        cardAction.textContent     = "Check that the box is plugged in";
+        var serialErr = (state.health && state.health.serial_error) || "";
+        var unplugged = serialErr.indexOf("Microcontroller disconnected") === 0;
+        cardTitle.textContent      = unplugged ? "Microcontroller disconnected" : "Sensors offline";
+        cardAction.textContent     = unplugged ? "Plug in the USB cable. It reconnects automatically."
+                                               : (serialErr || "Check that the box is plugged in");
         cardSilenced.style.display = "none";
         silenceBtn.style.display   = "none";
         explanationStrip.style.display = "none";
