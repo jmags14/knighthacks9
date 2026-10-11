@@ -240,9 +240,24 @@
     }
     .nav-tab svg    { width: 22px; height: 22px; }
     .nav-tab.active { color: #fff; }
+
+    /* ── Replay banner ── */
+    #replay-banner {
+      display: none;
+      margin: 0 -1rem 0.75rem;
+      padding: 0.6rem 1rem;
+      background: #b71c1c;
+      color: #fff;
+      font-weight: 800;
+      font-size: 0.95rem;
+      text-align: center;
+      letter-spacing: 0.06em;
+    }
   </style>
 </head>
 <body>
+
+  <div id="replay-banner">REPLAY: <span id="replay-banner-name"></span></div>
 
   <div class="topbar">
     <span class="topbar-title">StormBox</span>
@@ -283,6 +298,20 @@
 
   <script src="js/state.js"></script>
   <script>
+    var replayBanner     = document.getElementById("replay-banner");
+    var replayBannerName = document.getElementById("replay-banner-name");
+
+    // Map file -> "Storm Year" for the replay banner label
+    var _replayNames = {};
+    fetch("/api/replay/list")
+      .then(function (r) { return r.json(); })
+      .then(function (list) {
+        list.forEach(function (item) {
+          _replayNames[item.file] = item.storm + " " + item.year;
+        });
+      })
+      .catch(function () {});
+
     var card              = document.getElementById("card");
     var cardTitle         = document.getElementById("card-title");
     var cardAction        = document.getElementById("card-action");
@@ -450,6 +479,15 @@
       statusLabel.className   = "status-label ok";
       statusLabel.textContent = "● Connected to box";
       _lastAlarms             = state.alarms || [];
+
+      // Replay banner
+      var rp = state.replay || {};
+      if (rp.on) {
+        replayBannerName.textContent  = _replayNames[rp.file] || rp.file || "storm";
+        replayBanner.style.display    = "block";
+      } else {
+        replayBanner.style.display    = "none";
+      }
 
       var esp32Up = !!(state.health && state.health.esp32_link);
       var active  = sortedActive(_lastAlarms);
