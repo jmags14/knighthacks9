@@ -234,6 +234,37 @@ async def post_replay_stop():
     return {"ok": True}
 
 
+@app.get("/api/replay/timeline")
+async def get_replay_timeline():
+    tl = _service.get_timeline()
+    if tl is None:
+        return JSONResponse({"error": "no timeline loaded; start a replay first"}, status_code=404)
+    return tl
+
+
+@app.post("/api/replay/pause")
+async def post_replay_pause():
+    await _service.pause_replay()
+    return {"ok": True}
+
+
+@app.post("/api/replay/resume")
+async def post_replay_resume():
+    await _service.resume_replay()
+    return {"ok": True}
+
+
+class ReplaySpeedBody(BaseModel):
+    speed: int
+
+@app.post("/api/replay/speed")
+async def post_replay_speed(body: ReplaySpeedBody):
+    if body.speed not in (1, 2, 4):
+        return JSONResponse({"error": "speed must be 1, 2, or 4"}, status_code=400)
+    await _service.set_replay_speed(body.speed)
+    return {"ok": True, "speed": body.speed}
+
+
 # ------------------------------------------------------------------ static files
 # Mount LAST so API routes are matched first.
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

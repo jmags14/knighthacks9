@@ -21,7 +21,7 @@ from ai.agent.config import ALTITUDE_M, CAL_OFFSET_HPA, BOX_DB, ROOT as _REPO_RO
 _REPLAY_DIR = _REPO_ROOT / "ai" / "ml" / "v2" / "replay"
 from ai.agent.agent import explain_event as agent_explain
 from ai.agent import templates as _alarm_templates
-from ai.ml.storm_job import run_storm_job
+from ai.ml.storm_job import run_storm_job, replay_timeline as _replay_timeline
 
 
 # ------------------------------------------------------------------ helpers
@@ -202,6 +202,9 @@ class BoxService:
         self._pre_replay_storm_state:  dict              = {}
         self._pre_replay_storm_level:  str | None        = None
         self._pre_replay_storm_phase:  str | None        = None
+        self._timeline:                dict | None        = None  # pre-computed by replay_timeline()
+        self._resume_event:            asyncio.Event      = asyncio.Event()
+        self._resume_event.set()       # starts in "running" state
 
     def register_on_change(self, cb: OnChangeCb):
         """Register a coroutine called with the full state dict on every change."""
@@ -556,9 +559,14 @@ class BoxService:
                                    "model_version": None, "explanation": None}
 
         self._replay_buf.clear()
-        self._state.replay = {"on": True, "file": filename, "progress": 0}
+        self._resume_event.set()  # ensure unpaused for this replay
+        self._state.replay = {"on": True, "file": filename, "progress": 0, "hour": 0, "paused": False, "speed": 1}
         self._state.src    = "replay"
         self._state._refresh_status_card()
+
+        # Pre-compute the full storm timeline (cached after first call; ~0.1 s)
+        loop = asyncio.get_event_loop()
+        self._timeline = await loop.run_in_executor(None, lambda: _replay_timeline(filename))
 
         if self._dev:
             print(f"[service] -> replay on  file={filename}")
@@ -599,7 +607,8 @@ class BoxService:
         self._cur_storm_level  = self._pre_replay_storm_level
         self._prev_storm_phase = self._pre_replay_storm_phase
 
-        self._state.replay = {"on": False, "file": None, "progress": 0}
+        self._resume_event.set()  # unblock loop if it was paused when stop was called
+        self._state.replay = {"on": False, "file": None, "progress": 0, "hour": 0, "paused": False, "speed": 1}
         self._state.src    = "live"
         self._state._refresh_status_card()
 
@@ -620,7 +629,15 @@ class BoxService:
             rows = list(csv.DictReader(fh))
         total = len(rows)
 
+        _SPEED_SLEEP = {1: 0.25, 2: 0.125, 4: 0.0625}
+
         for idx, row in enumerate(rows):
+            if not self._running:
+                break
+
+            # Block here (cheaply) while paused; unblocks instantly on resume
+            await self._resume_event.wait()
+
             if not self._running:
                 break
 
@@ -664,13 +681,37 @@ class BoxService:
             if (idx + 1) % 6 == 0:
                 await self._run_replay_storm_job()
 
+            # hour = index of the last completed storm-job entry in the pre-computed timeline
+            self._state.replay["hour"]     = max(0, (idx + 1) // 6 - 1)
             self._state.replay["progress"] = round((idx + 1) / total * 100)
             await self._notify()
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(_SPEED_SLEEP.get(self._state.replay.get("speed", 1), 0.25))
 
         # End of file: clean up just like a manual stop
         self._replay_task_handle = None   # clear own handle before calling cleanup
         await self._do_stop_replay()
+
+    def get_timeline(self) -> dict | None:
+        """Return the pre-computed storm timeline for the current (or last) replay."""
+        return self._timeline
+
+    async def pause_replay(self):
+        if not self._state.replay["on"] or self._state.replay["paused"]:
+            return
+        self._state.replay["paused"] = True
+        self._resume_event.clear()
+        await self._notify()
+
+    async def resume_replay(self):
+        if not self._state.replay["on"] or not self._state.replay["paused"]:
+            return
+        self._state.replay["paused"] = False
+        self._resume_event.set()
+        await self._notify()
+
+    async def set_replay_speed(self, speed: int):
+        self._state.replay["speed"] = speed
+        await self._notify()
 
     async def _run_replay_storm_job(self):
         """Run the storm risk model on the replay buffer and update state.storm."""

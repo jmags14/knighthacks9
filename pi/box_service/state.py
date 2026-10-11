@@ -32,7 +32,7 @@ class BoxState:
             "internet": False,
         }
 
-        self.replay = {"on": False, "file": None, "progress": 0}
+        self.replay = {"on": False, "file": None, "progress": 0, "hour": 0, "paused": False, "speed": 1}
 
     # ------------------------------------------------------------------ helpers
 

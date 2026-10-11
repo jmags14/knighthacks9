@@ -73,7 +73,20 @@
       flex-wrap: wrap;
       gap: 0.5rem;
       align-items: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .speed-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
       margin-bottom: 1rem;
+    }
+
+    .speed-label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-right: 0.25rem;
     }
 
     select {
@@ -103,8 +116,11 @@
     button:hover:not(:disabled) { background: #2a2a2a; }
     button:disabled { opacity: 0.45; cursor: default; }
 
-    .btn-start { border-color: var(--green); color: var(--green); }
-    .btn-stop  { border-color: var(--red);   color: var(--red);   }
+    .btn-start  { border-color: var(--green);  color: var(--green);  }
+    .btn-pause  { border-color: var(--amber);  color: var(--amber);  }
+    .btn-stop   { border-color: var(--red);    color: var(--red);    }
+    .btn-speed  { min-width: 2.6rem; text-align: center; }
+    .btn-speed.active { border-color: var(--amber); color: var(--amber); background: #2a2000; }
 
     /* ── Progress ── */
     .progress-row {
@@ -158,6 +174,25 @@
 
     .stat-value { font-size: 1.6rem; font-weight: 700; }
 
+    /* ── Chart ── */
+    .chart-wrap {
+      position: relative;
+      height: 280px;
+    }
+
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .legend-wind-warn   { color: #ff9800; }
+    .legend-wind-alarm  { color: #f44336; }
+    .legend-storm-alert { color: #ce93d8; }
+    .legend-closest     { color: #4caf50; }
+
     @media (max-width: 600px) {
       .stat-tiles { grid-template-columns: 1fr 1fr; }
       select { min-width: 100%; }
@@ -173,14 +208,22 @@
     <span class="dot err" id="ws-dot">&#x25cf;</span>
   </h1>
 
+  <!-- ── Replay control panel ── -->
   <div class="panel">
     <h2>Replay</h2>
     <div class="replay-controls">
       <select id="replay-select">
         <option value="">Loading storms&hellip;</option>
       </select>
-      <button class="btn-start" id="start-btn" disabled>Start</button>
-      <button class="btn-stop"  id="stop-btn"  disabled>Stop</button>
+      <button class="btn-start" id="start-btn"  disabled>Start</button>
+      <button class="btn-pause" id="pause-btn"  disabled>Pause</button>
+      <button class="btn-stop"  id="stop-btn"   disabled>Stop</button>
+    </div>
+    <div class="speed-row">
+      <span class="speed-label">Speed:</span>
+      <button class="btn-speed active" id="speed-1" disabled>1&times;</button>
+      <button class="btn-speed"        id="speed-2" disabled>2&times;</button>
+      <button class="btn-speed"        id="speed-4" disabled>4&times;</button>
     </div>
     <div class="progress-row">
       <progress id="replay-progress" max="100" value="0"></progress>
@@ -196,12 +239,28 @@
         <div class="stat-value" id="stat-wind">&mdash;</div>
       </div>
       <div class="stat-tile">
-        <div class="stat-label">Storm risk</div>
+        <div class="stat-label">Risk score (0-100)</div>
         <div class="stat-value" id="stat-risk">&mdash;</div>
       </div>
     </div>
   </div>
 
+  <!-- ── Chart (a): Pressure + Wind ── -->
+  <div class="panel" id="chart-panel" style="display:none">
+    <h2>Pressure &amp; Wind</h2>
+    <div class="chart-wrap">
+      <canvas id="chart-a"></canvas>
+    </div>
+    <div class="chart-legend">
+      <span class="legend-wind-warn">&#x2014; Wind warn (&ge;39&nbsp;mph)</span>
+      <span class="legend-wind-alarm">&#x2014; Wind alarm (&ge;74&nbsp;mph)</span>
+      <span class="legend-storm-alert">&#x2014; Storm alert</span>
+      <span class="legend-closest">&#x2014; Closest approach</span>
+      <span style="color:#555">&#x2014; Clear / recovering</span>
+    </div>
+  </div>
+
+  <script src="vendor/chart.umd.min.js"></script>
   <script src="js/state.js"></script>
   <script>
     var wsDot        = document.getElementById("ws-dot");
@@ -209,23 +268,29 @@
     var bannerName   = document.getElementById("banner-name");
     var replaySelect = document.getElementById("replay-select");
     var startBtn     = document.getElementById("start-btn");
+    var pauseBtn     = document.getElementById("pause-btn");
     var stopBtn      = document.getElementById("stop-btn");
+    var speedBtns    = { 1: document.getElementById("speed-1"),
+                         2: document.getElementById("speed-2"),
+                         4: document.getElementById("speed-4") };
     var replayProg   = document.getElementById("replay-progress");
     var replayPct    = document.getElementById("replay-pct");
     var statPressure = document.getElementById("stat-pressure");
     var statWind     = document.getElementById("stat-wind");
     var statRisk     = document.getElementById("stat-risk");
+    var chartPanel   = document.getElementById("chart-panel");
 
+    // ── Replay dropdown ──────────────────────────────────────────────────────
     var _nameMap = {};
 
     fetch("/api/replay/list")
-      .then(function (r) { return r.json(); })
-      .then(function (list) {
+      .then(function(r) { return r.json(); })
+      .then(function(list) {
         _nameMap = {};
         replaySelect.innerHTML = list.length
           ? "<option value=\"\">— select a storm —</option>"
           : "<option value=\"\">No storms available</option>";
-        list.forEach(function (item) {
+        list.forEach(function(item) {
           var display = item.storm + " " + item.year + " · " + Math.round(item.min_pressure_hpa) + " hPa";
           _nameMap[item.file] = item.storm + " " + item.year;
           var opt = document.createElement("option");
@@ -235,12 +300,12 @@
         });
         startBtn.disabled = false;
       })
-      .catch(function (e) {
+      .catch(function(e) {
         replaySelect.innerHTML = "<option value=\"\">Failed to load storms</option>";
         console.error("[engineer] replay list fetch failed:", e);
       });
 
-    startBtn.addEventListener("click", function () {
+    startBtn.addEventListener("click", function() {
       var file = replaySelect.value;
       if (!file) return;
       startBtn.disabled = true;
@@ -249,29 +314,244 @@
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ file: file }),
       })
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
           if (d.error) {
             console.error("[engineer] start failed:", d.error);
             startBtn.disabled = false;
           }
         })
-        .catch(function (e) {
+        .catch(function(e) {
           console.error("[engineer] start fetch failed:", e);
           startBtn.disabled = false;
         });
     });
 
-    stopBtn.addEventListener("click", function () {
+    pauseBtn.addEventListener("click", function() {
+      var paused = pauseBtn.textContent === "Resume";
+      var url    = paused ? "/api/replay/resume" : "/api/replay/pause";
+      pauseBtn.disabled = true;
+      fetch(url, { method: "POST" })
+        .catch(function(e) { console.error("[engineer] pause/resume failed:", e); })
+        .finally(function() { pauseBtn.disabled = false; });
+    });
+
+    stopBtn.addEventListener("click", function() {
       stopBtn.disabled = true;
       fetch("/api/replay/stop", { method: "POST" })
-        .catch(function (e) {
+        .catch(function(e) {
           console.error("[engineer] stop fetch failed:", e);
           stopBtn.disabled = false;
         });
     });
 
-    connectState(function (state) {
+    [1, 2, 4].forEach(function(s) {
+      speedBtns[s].addEventListener("click", function() {
+        fetch("/api/replay/speed", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ speed: s }),
+        }).catch(function(e) { console.error("[engineer] speed failed:", e); });
+      });
+    });
+
+    // ── Timeline chart ───────────────────────────────────────────────────────
+    var _tl        = null;  // last replay_timeline result
+    var _chart     = null;  // Chart.js instance
+    var _chartFile = null;  // file name drawn in _chart (avoids double-fetch)
+
+    // Custom plugin: warming-up zone, closest marker, alarm markers, cursor
+    var stormOverlayPlugin = {
+      id: "stormOverlay",
+      afterDraw: function(chart) {
+        var opts = chart.options.plugins.stormOverlay || {};
+        var ctx  = chart.ctx;
+        var ca   = chart.chartArea;
+        var xs   = chart.scales.x;
+        if (!xs || !ca) return;
+        ctx.save();
+        ctx.font = "10px ui-monospace, monospace";
+
+        // Warming-up background + label
+        if (opts.warmUpHours > 0 && opts.totalHours > 0) {
+          var x0 = xs.getPixelForValue(0);
+          var x1 = xs.getPixelForValue(Math.max(opts.warmUpHours - 0.5, 0));
+          ctx.fillStyle = "rgba(255,255,255,0.04)";
+          ctx.fillRect(x0, ca.top, x1 - x0, ca.bottom - ca.top);
+          ctx.fillStyle = "#555";
+          ctx.fillText("warming up", x0 + 4, ca.top + 13);
+        }
+
+        // Closest-approach vertical line
+        if (opts.closestHour != null) {
+          var xc = xs.getPixelForValue(opts.closestHour);
+          ctx.strokeStyle = "#4caf50";
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([6, 3]);
+          ctx.beginPath(); ctx.moveTo(xc, ca.top); ctx.lineTo(xc, ca.bottom); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = "#4caf50";
+          ctx.fillText("closest", xc + 4, ca.top + 13);
+        }
+
+        // Alarm marker lines
+        var MARKER_COLORS = {
+          wind_warn:   "#ff9800",
+          wind_alarm:  "#f44336",
+          wind_clear:  "#444",
+          storm_alert: "#ce93d8",
+          storm_clear: "#444"
+        };
+        (opts.markers || []).forEach(function(m) {
+          var col = MARKER_COLORS[m.type] || "#666";
+          var xm  = xs.getPixelForValue(m.hour);
+          ctx.strokeStyle = col;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 2]);
+          ctx.beginPath(); ctx.moveTo(xm, ca.top); ctx.lineTo(xm, ca.bottom); ctx.stroke();
+        });
+
+        // Cursor (white dashed vertical at current hour)
+        ctx.setLineDash([]);
+        if (opts.cursor != null) {
+          var xCur = xs.getPixelForValue(opts.cursor);
+          ctx.strokeStyle = "rgba(255,255,255,0.75)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(xCur, ca.top); ctx.lineTo(xCur, ca.bottom); ctx.stroke();
+        }
+
+        ctx.restore();
+      }
+    };
+
+    function _fmtHour(ts) {
+      var d   = new Date(ts);
+      var mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getUTCMonth()];
+      return mon + " " + d.getUTCDate() + " " +
+             String(d.getUTCHours()).padStart(2, "0") + ":" +
+             String(d.getUTCMinutes()).padStart(2, "0");
+    }
+
+    function _windLevel(mph, cur) {
+      if (cur === null) {
+        if (mph >= 74) return "alarm"; if (mph >= 39) return "warn"; return null;
+      } else if (cur === "alarm") {
+        if (mph < 35) return null; if (mph < 70) return "warn"; return "alarm";
+      } else {
+        if (mph < 35) return null; if (mph >= 74) return "alarm"; return "warn";
+      }
+    }
+
+    function _buildMarkers(timeline) {
+      var markers = [], curWind = null, prevAlert = false;
+      timeline.forEach(function(e, i) {
+        var mph     = e.wind_ms != null ? +(e.wind_ms * 2.237).toFixed(1) : 0;
+        var newWind = _windLevel(mph, curWind);
+        if (newWind !== curWind) {
+          markers.push({ hour: i, type: newWind === null ? "wind_clear" : newWind === "alarm" ? "wind_alarm" : "wind_warn" });
+          curWind = newWind;
+        }
+        var alert = !!e.alert;
+        if (alert && !prevAlert) markers.push({ hour: i, type: "storm_alert" });
+        if (!alert && prevAlert) markers.push({ hour: i, type: "storm_clear" });
+        prevAlert = alert;
+      });
+      return markers;
+    }
+
+    function _findClosestHour(timeline, closestTime) {
+      if (!closestTime) return null;
+      var ms = new Date(closestTime).getTime(), best = Infinity, idx = null;
+      timeline.forEach(function(e, i) {
+        var d = Math.abs(new Date(e.sim_time).getTime() - ms);
+        if (d < best) { best = d; idx = i; }
+      });
+      return idx;
+    }
+
+    function drawChart(tl) {
+      _tl = tl;
+      var T       = tl.timeline;
+      var warmUp  = T.filter(function(e) { return e.status !== "ok"; }).length;
+      var labels  = T.map(function(e) { return _fmtHour(e.sim_time); });
+      var pData   = T.map(function(e) { return e.pressure_hpa != null ? +e.pressure_hpa.toFixed(1) : null; });
+      var wData   = T.map(function(e) { return e.wind_ms != null ? +(e.wind_ms * 2.237).toFixed(1) : null; });
+      var markers = _buildMarkers(T);
+      var closest = _findClosestHour(T, tl.closest_time);
+
+      var ctx = document.getElementById("chart-a").getContext("2d");
+      if (_chart) { _chart.destroy(); _chart = null; }
+
+      _chart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: [
+            { label: "Pressure (hPa)", data: pData, borderColor: "#64b5f6",
+              backgroundColor: "transparent", yAxisID: "yP",
+              pointRadius: 0, borderWidth: 2, tension: 0.2 },
+            { label: "Wind (mph)", data: wData, borderColor: "#ff9800",
+              backgroundColor: "transparent", yAxisID: "yW",
+              pointRadius: 0, borderWidth: 2, tension: 0.2 }
+          ]
+        },
+        options: {
+          animation:           false,
+          responsive:          true,
+          maintainAspectRatio: false,
+          interaction:         { mode: "index", intersect: false },
+          scales: {
+            x: {
+              ticks: { maxTicksLimit: 9, color: "#888", font: { family: "ui-monospace, monospace", size: 11 } },
+              grid:  { color: "#2a2a2a" }
+            },
+            yP: {
+              type: "linear", position: "left",
+              title: { display: true, text: "Pressure (hPa)", color: "#64b5f6", font: { size: 11 } },
+              ticks: { color: "#64b5f6", font: { size: 11 } },
+              grid:  { color: "#2a2a2a" }
+            },
+            yW: {
+              type: "linear", position: "right", min: 0,
+              title: { display: true, text: "Wind (mph)", color: "#ff9800", font: { size: 11 } },
+              ticks: { color: "#ff9800", font: { size: 11 } },
+              grid:  { drawOnChartArea: false }
+            }
+          },
+          plugins: {
+            legend:       { labels: { color: "#e8e8e8", font: { family: "ui-monospace, monospace", size: 11 } } },
+            tooltip:      { backgroundColor: "#2a2a2a", titleColor: "#e8e8e8", bodyColor: "#888" },
+            stormOverlay: { warmUpHours: warmUp, totalHours: T.length, closestHour: closest, markers: markers, cursor: null }
+          }
+        },
+        plugins: [stormOverlayPlugin]
+      });
+    }
+
+    function updateChartCursor(hour) {
+      if (!_chart || !_tl) return;
+      _chart.options.plugins.stormOverlay.cursor =
+        (hour != null) ? Math.min(hour, _tl.timeline.length - 1) : null;
+      _chart.update("none");
+    }
+
+    function fetchAndDrawChart() {
+      if (typeof Chart === "undefined") {
+        console.error("[engineer] Chart.js not loaded");
+        return;
+      }
+      fetch("/api/replay/timeline")
+        .then(function(r) { return r.json(); })
+        .then(function(tl) {
+          if (tl.error) { console.error("[engineer] timeline error:", tl.error); return; }
+          drawChart(tl);
+          chartPanel.style.display = "block";
+        })
+        .catch(function(e) { console.error("[engineer] timeline fetch error:", e); });
+    }
+
+    // ── Live state ───────────────────────────────────────────────────────────
+    connectState(function(state) {
       if (!state._connected) {
         wsDot.className = "dot err";
         return;
@@ -281,24 +561,35 @@
       var replay = state.replay || {};
       var on     = !!replay.on;
 
-      // Banner
+      // Banner: show "PAUSED" prefix when paused
       if (on) {
-        bannerName.textContent     = _nameMap[replay.file] || replay.file || "storm";
+        var stormLabel = _nameMap[replay.file] || replay.file || "storm";
+        bannerName.textContent     = stormLabel;
+        replayBanner.firstChild.textContent = replay.paused ? "PAUSED: " : "REPLAY: ";
         replayBanner.style.display = "block";
       } else {
         replayBanner.style.display = "none";
       }
 
-      // Buttons: disable Start while on, disable Stop while off
+      // Buttons
       startBtn.disabled = on;
+      pauseBtn.disabled = !on;
+      pauseBtn.textContent = (on && replay.paused) ? "Resume" : "Pause";
       stopBtn.disabled  = !on;
+
+      // Speed buttons: enable when on, highlight active speed
+      var curSpeed = replay.speed || 1;
+      [1, 2, 4].forEach(function(s) {
+        speedBtns[s].disabled = !on;
+        speedBtns[s].className = "btn-speed" + (on && curSpeed === s ? " active" : "");
+      });
 
       // Progress
       var pct = replay.progress || 0;
       replayProg.value      = pct;
       replayPct.textContent = pct + "%";
 
-      // Live stat tiles
+      // Stat tiles
       var r  = state.readings || {};
       var st = state.storm    || {};
 
@@ -307,9 +598,20 @@
 
       if (st.risk != null) {
         var riskPct = st.risk > 1 ? Math.round(st.risk) : Math.round(st.risk * 100);
-        statRisk.textContent = riskPct + "%";
+        statRisk.textContent = riskPct;
       } else {
         statRisk.textContent = "—";
+      }
+
+      // Auto-load chart when a replay is on (handles new start + page reload mid-replay)
+      if (on && replay.file && replay.file !== _chartFile) {
+        _chartFile = replay.file;
+        fetchAndDrawChart();
+      }
+
+      // Move cursor
+      if (_chart && on) {
+        updateChartCursor(replay.hour);
       }
     });
   </script>
