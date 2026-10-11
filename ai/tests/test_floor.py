@@ -86,3 +86,18 @@ def test_calibration_matches_the_firmware():
     assert f"#define WATER_WET   {config.FLOOR_WET_RAW}" in fw and f"#define WATER_DRY   {config.FLOOR_DRY_RAW}" in fw
     assert f"#define WATER_ALARM_PCT  {config.FLOOR_WET_PCT}" in fw
     assert f"#define RAIN_LIGHT_PCT  {config.FLOOR_DAMP_PCT}" in fw
+
+
+@pytest.mark.parametrize("q", [
+    "What's the weather like outside?", "Is it raining?", "How much rain have we had?", "How hard is it raining?",
+    "Show me the sensor readings", "How's it looking out?", "Is it windy?",
+])
+def test_no_answer_ever_gives_rain_inches_without_a_gauge(q):
+    cs1 = {"readings": {"p": 1000.0, "temp": 29.0, "hum": 70.0, "water": 1125, "rain": 45}, "power": {},
+           "alarms": [], "storm": {}}
+    tools.set_provider(lambda: cs1)
+    try:
+        a = agent.answer(q)["answer"]
+    finally:
+        tools.set_provider(None)
+    assert "inch" not in a.lower() and "45" not in a

@@ -3,7 +3,9 @@ StormBox FastAPI web app.
 
 Configuration (environment variables):
   STORMBOX_FAKE=1          — use in-process FakeESP32
-  STORMBOX_SERIAL=<port>   — use real serial (e.g. /dev/ttyUSB0 or COM3)
+  SERIAL_PORT=auto|<port>  — real serial: "auto" (default) finds the board by USB ID, or e.g. COM3
+  TRANSPORT=serial|mqtt    — serial (default) or MQTT (MQTT_HOST, MQTT_PORT, MQTT_TOPIC_PREFIX)
+  STORMBOX_SERIAL=<port>   — same, set by `run.py --serial PORT`; wins over SERIAL_PORT
 
 Start via:
   python pi/run.py --fake
@@ -31,6 +33,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from pi.box_service.state import BoxState
 from pi.box_service.service import BoxService, SerialSource
+from pi.box_service import serialport, mqttsource
 
 from ai.agent.api import router as agent_router
 from ai.agent import tools as agent_tools
@@ -104,12 +107,8 @@ async def lifespan(app: FastAPI):
     global _state, _service, _fake
 
     dev_mode    = os.environ.get("STORMBOX_FAKE")   == "1"
-    serial_port = os.environ.get("STORMBOX_SERIAL")
-
-    if not dev_mode and not serial_port:
-        raise RuntimeError(
-            "Set STORMBOX_FAKE=1 or STORMBOX_SERIAL=<port> before starting."
-        )
+    # SERIAL_PORT: "auto" (default) finds the board by USB ID; or an explicit COM3 / /dev/ttyACM0.
+    serial_port = serialport.configured_port()
 
     _ensure_db()
     _state = BoxState(dev=dev_mode)
@@ -122,6 +121,10 @@ async def lifespan(app: FastAPI):
         _fake    = FakeESP32()
         source   = _fake
         fake_task = asyncio.create_task(_fake.run())
+    elif mqttsource.transport() == "mqtt":
+        # Optional: box on Wi-Fi publishing to a broker (see MQTT_SETUP.md). Serial stays the default.
+        source    = mqttsource.MqttSource.from_env()
+        fake_task = None
     else:
         source    = SerialSource(serial_port)
         fake_task = None

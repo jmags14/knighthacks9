@@ -7,6 +7,7 @@ Start with:  asyncio.create_task(service.start())
 import asyncio
 import csv
 import json
+import os
 import sqlite3
 import time
 from collections import deque
@@ -14,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from . import serialport
 from .state import BoxState
 
 from ai.agent.config import ALTITUDE_M, CAL_OFFSET_HPA, BOX_DB, ROOT as _REPO_ROOT
@@ -91,20 +93,23 @@ class SerialSource:
     Uses run_in_executor so blocking calls don't stall asyncio.
     """
 
-    def __init__(self, port: str, baudrate: int = 115200):
-        self._port     = port
+    def __init__(self, port: str = "auto", baudrate: int = 115200):
+        self._port     = port   # "auto" = find the board by USB ID, re-checked on every open
         self._baudrate = baudrate
         self._ser      = None   # opened on first use
+        self._open_port = None  # the port actually opened (for messages)
+        self.last_error = None  # plain-words problem for the dashboard; None while data flows
 
     def _open_sync(self):
-        """Open (or reopen) the port. Raises serial.SerialException on failure."""
+        """Open (or reopen) the port. Raises on failure (BoardNotFound / serial.SerialException)."""
         import serial
         if self._ser:
             try:
                 self._ser.close()
             except Exception:
                 pass
-        self._ser = serial.Serial(self._port, self._baudrate, timeout=1)
+        self._open_port = serialport.resolve_port(self._port)
+        self._ser = serial.Serial(self._open_port, self._baudrate, timeout=1)
 
     def _readline_sync(self) -> str:
         """Read one non-empty line. Raises on port error."""
@@ -116,17 +121,21 @@ class SerialSource:
 
     async def readline(self) -> str:
         loop = asyncio.get_event_loop()
-        if self._ser is None:
-            await loop.run_in_executor(None, self._open_sync)
         try:
-            return await loop.run_in_executor(None, self._readline_sync)
-        except Exception:
-            try:
-                self._ser.close()
-            except Exception:
-                pass
+            if self._ser is None:
+                await loop.run_in_executor(None, self._open_sync)
+            line = await loop.run_in_executor(None, self._readline_sync)
+        except Exception as exc:
+            self.last_error = serialport.describe_error(exc, self._open_port or self._port)
+            if self._ser is not None:
+                try:
+                    self._ser.close()
+                except Exception:
+                    pass
             self._ser = None
             raise
+        self.last_error = None
+        return line
 
     async def write(self, data: bytes):
         if self._ser is None:
@@ -151,6 +160,18 @@ class SerialSource:
 OnChangeCb = Callable[[dict], Awaitable[None]]
 
 
+def speak_events_enabled() -> bool:
+    """SPEAK_EVENTS=1 (set in the systemd file on the Pi) -> internet lost/restored is spoken aloud.
+    Default off, so the laptop stays quiet."""
+    return os.environ.get("SPEAK_EVENTS", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _speak_event(event: dict):
+    """Speak an event through the voice pipeline (imported late: it pulls in the speech models)."""
+    from ai.voice.pipeline import speak_event
+    return speak_event(event)
+
+
 class BoxService:
     """
     Orchestrates:
@@ -166,6 +187,7 @@ class BoxService:
         self._cbs:         list[OnChangeCb] = []
         self._last_rx      = time.monotonic()
         self._running      = False
+        self._last_read_error: str | None = None
         # Rolling pressure buffer fed to the storm risk model (8 h @ 1 Hz)
         self._pressure_buf:    deque = deque(maxlen=28_800)
         self._prev_storm_phase: str | None = None
@@ -234,8 +256,16 @@ class BoxService:
                     self._apply_wind_alarm(self._state.readings["wind"])
                 await self._notify()
             except Exception as exc:
-                print(f"[service] read error: {exc}")
+                # Log each distinct problem once (not every 2 s while the cable is out).
+                msg = getattr(self._source, "last_error", None) or str(exc)
+                if msg != self._last_read_error:
+                    print(f"[service] read error: {msg}")
+                    self._last_read_error = msg
                 await asyncio.sleep(2)
+            else:
+                if self._last_read_error:
+                    print("[service] microcontroller connected")
+                    self._last_read_error = None
 
     def _handle_line(self, raw: str):
         """Parse one §5 JSON line and apply it to BoxState. Ignore malformed lines."""
@@ -285,6 +315,7 @@ class BoxService:
             age_ms = int((time.monotonic() - self._last_rx) * 1000)
             self._state.health["last_msg_age_ms"] = age_ms
             self._state.health["esp32_link"] = age_ms < 5000
+            self._state.health["serial_error"] = getattr(self._source, "last_error", None)
             self._state.health["net"] = _netcheck.status()
             await self._notify()
 
@@ -311,6 +342,8 @@ class BoxService:
                 lcd = result.get("lcd", ("", ""))
                 await self._send_lcd_cmd(lcd[0], lcd[1])
                 await self._notify()
+                if speak_events_enabled():
+                    await loop.run_in_executor(None, lambda e=event: _speak_event(e))
             except Exception as exc:
                 print(f"[service] net event error: {exc}")
 

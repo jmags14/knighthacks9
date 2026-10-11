@@ -48,8 +48,9 @@ def auto(monkeypatch):
 
 
 # ---------------------------------------------------------------- defaults = today
-def test_defaults_are_v1_live_and_v1_replay():
-    assert config.STORM_MODEL_MODE == "v1" and config.STORM_REPLAY_MODEL == "v1"
+def test_defaults_are_v1_live_and_auto_replay():
+    # live stays on the pressure model; the replay demo defaults to auto (v2 "both" when wind columns exist)
+    assert config.STORM_MODEL_MODE == "v1" and config.STORM_REPLAY_MODEL == "auto"
 
 
 def test_v1_mode_ignores_wind_and_is_unchanged():
@@ -60,7 +61,8 @@ def test_v1_mode_ignores_wind_and_is_unchanged():
     assert with_wind["reason"].startswith("Storm risk ") and "(pressure model)" not in with_wind["reason"]
 
 
-def test_v1_replay_with_wind_columns_still_uses_v1_pressure():
+def test_v1_replay_with_wind_columns_still_uses_v1_pressure(monkeypatch):
+    monkeypatch.setattr(config, "STORM_REPLAY_MODEL", "v1")
     rows = readings(8, p=falling, gust_ms=15.0)
     r = run(rows, source="replay")
     assert r["model"] == "pressure" and "model)" not in r["reason"]

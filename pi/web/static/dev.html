@@ -280,7 +280,7 @@
         tile("Wind (mph)",     v(r.wind, 1)),
         tile("Temperature",    tempStr),
         tile("Humidity (%)",   r.hum  != null ? v(r.hum, 1) + "%" : "—"),
-        tile("Floor",
+        tile("Floor water",
              "<span class='" + floorClass + "'>" + floorLabel + "</span>",
              r.water != null ? "sensor: " + r.water : ""),
       ].join("");
