@@ -3,15 +3,31 @@
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 #include "SPL07-003.h"   // Seeed_Arduino_SPA06 library (Grove SPA06-003 barometer)
+#define WIND_MS_PER_HZ   0.667f
 
-
-// ---- Pins (Seeed XIAO RP2040, arduino-pico core: raw GPIO numbers) ----
-#define WATER_PIN   A0   // GPIO26, ADC
-#define MY_I2C_SDA  6
-#define MY_I2C_SCL  7
-#define DHT_PIN     0    // D6 (GPIO0)
-#define HALL_PIN    1    // D7 (GPIO1)
-#define BUZZER_PIN  2    // D8 (GPIO2)
+// =====================================================================
+// ESP32-WROOM-32D DevKit pin map (matches pinout.xlsx)
+// The numbers below are GPIO numbers. On the board silkscreen the back
+// labels them P<n> (e.g. P21) and the front may show D<n> (e.g. D21).
+//
+//   Function            GPIO   Board label   Module
+//   ------------------  -----  -----------   ---------------------------
+//   I2C SDA             21     P21 / D21     Grove SPA06-003 (white)
+//   I2C SCL             22     P22 / D22     Grove SPA06-003 (yellow)
+//   Water level (ADC)   34     P34 / D34     Water sensor signal
+//   DHT11 data          4      P4  / D4      DHT11
+//   Hall / wind pulse   27     P27 / D27     Hall sensor (A3144 / KY-003)
+//   Buzzer              26     P26 / D26     Buzzer module
+//   Power               -      3V3           All sensors
+//   Ground              -      GND           All sensors
+// =====================================================================
+#define MY_I2C_SDA  21   // P21
+#define MY_I2C_SCL  22   // P22
+#define WATER_PIN   34   // P34, ADC1_CH6, input-only
+#define DHT_PIN     4    // P4
+#define HALL_PIN    27   // P27
+#define BUZZER_PIN  26   // P26
+// Avoid: GPIO6-11 (flash), GPIO0/2/12/15 (boot strapping), GPIO34-39 have no pull-ups.
 
 #define BUZZER_ON   HIGH   // change to LOW for active-LOW modules
 #define BUZZER_OFF  (!BUZZER_ON)
@@ -20,15 +36,12 @@
 // SPL07_ADDR_DEF = 0x77 (Grove default), SPL07_ADDR_ALT = 0x76
 #define BARO_ADDR   SPL07_ADDR_DEF
 
-// ---- Water calibration: note raw values dry and submerged (12-bit, 0-4095) ----
+// ---- Water calibration: raw values dry and submerged (12-bit, 0-4095) ----
+// NOTE: ESP32 ADC is non-linear near 0 V and 3.3 V; recalibrate these values.
 #define WATER_DRY   0
 #define WATER_WET   2500
 
-// ---- Rain categories (based on the water % above) ----
-// CALIBRATE: watch "rain" in the output while dry, with a few drops, and soaked.
-//   below RAIN_LIGHT_PCT           -> dry
-//   RAIN_LIGHT_PCT .. HEAVY_PCT-1  -> light rain
-//   RAIN_HEAVY_PCT and above       -> heavy rain
+// ---- Rain categories (based on the water %) ----
 #define RAIN_LIGHT_PCT  10
 #define RAIN_HEAVY_PCT  40
 
@@ -37,8 +50,6 @@
 #define MINUTE_MS        60000UL   // set to 10000UL to test quickly
 
 // ---- Wind calibration: Hall pulses -> speed ----
-// km/h per pulse-per-second (Hz). 2.4 is the common cup-anemometer value
-// (one pulse/sec = 2.4 km/h). Adjust for your sensor and magnet count.
 #define WIND_KMH_PER_HZ  2.4f
 
 // ---- Alarm thresholds ----
@@ -53,7 +64,7 @@ SPL07_003 barometer;
 bool barometerOK = false;
 
 volatile uint32_t hallCount = 0;
-void onHall() { hallCount++; }   // no IRAM_ATTR on RP2040
+void IRAM_ATTR onHall() { hallCount++; }   // ISR must live in IRAM on ESP32
 
 // ---- Rain tracking state ----
 enum RainLevel { RAIN_DRY = 0, RAIN_LIGHT = 1, RAIN_HEAVY = 2 };
@@ -148,21 +159,31 @@ void printJsonFloat(float v, int dec) {
   else Serial.print(v, dec);
 }
 
+void printPinMap() {
+  Serial.println(F("Pin map (GPIO / board label):"));
+  Serial.printf("  I2C SDA  : GPIO%d (P%d)\n", MY_I2C_SDA, MY_I2C_SDA);
+  Serial.printf("  I2C SCL  : GPIO%d (P%d)\n", MY_I2C_SCL, MY_I2C_SCL);
+  Serial.printf("  Water    : GPIO%d (P%d)\n", WATER_PIN, WATER_PIN);
+  Serial.printf("  DHT11    : GPIO%d (P%d)\n", DHT_PIN, DHT_PIN);
+  Serial.printf("  Hall     : GPIO%d (P%d)\n", HALL_PIN, HALL_PIN);
+  Serial.printf("  Buzzer   : GPIO%d (P%d)\n", BUZZER_PIN, BUZZER_PIN);
+}
+
 void setup() {
   Serial.begin(115200);
-  uint32_t t0 = millis();
-  while (!Serial && millis() - t0 < 3000) { delay(10); }   // wait for USB serial monitor
-  Serial.println(F("Sensor station starting..."));
+  delay(1500);   // ESP32 USB-UART: give the monitor time to attach
+  Serial.println(F("Sensor station starting (ESP32)..."));
+  printPinMap();
 
   analogReadResolution(12);
+  analogSetPinAttenuation(WATER_PIN, ADC_11db);   // full 0-3.3 V range
 
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, BUZZER_OFF);
 
-  // RP2040: set pins first, then begin() with no arguments
-  Wire.setSDA(MY_I2C_SDA);
-  Wire.setSCL(MY_I2C_SCL);
-  Wire.begin();
+  // ESP32: pins are passed to begin()
+  Wire.begin(MY_I2C_SDA, MY_I2C_SCL);
+  Wire.setClock(100000);
 
   // ---- I2C scan: list every device on the bus ----
   Serial.print(F("I2C scan (SDA="));
@@ -181,8 +202,9 @@ void setup() {
   if (found == 0) Serial.print(F(" nothing found - check wiring/power"));
   Serial.println();
 
-  // ---- Grove SPA06-003 barometer: find it, read its real chip ID, start it with that ID ----
-  const uint8_t baroAddrs[2] = { BARO_ADDR, (uint8_t)(BARO_ADDR == SPL07_ADDR_DEF ? SPL07_ADDR_ALT : SPL07_ADDR_DEF) };
+  // ---- Grove SPA06-003 barometer: find it, read its real chip ID, start with that ID ----
+  const uint8_t baroAddrs[2] = { BARO_ADDR,
+    (uint8_t)(BARO_ADDR == SPL07_ADDR_DEF ? SPL07_ADDR_ALT : SPL07_ADDR_DEF) };
   for (int i = 0; i < 2 && !barometerOK; i++) {
     uint8_t addr = baroAddrs[i];
     Wire.beginTransmission(addr);
@@ -208,7 +230,7 @@ void setup() {
   dht.begin();
 
   pinMode(HALL_PIN, INPUT_PULLUP);
-  attachInterrupt(HALL_PIN, onHall, FALLING);
+  attachInterrupt(digitalPinToInterrupt(HALL_PIN), onHall, FALLING);
 
   beep(1, 150);   // startup chirp
   minuteStart = millis();
@@ -267,7 +289,7 @@ void loop() {
   uint32_t pulses = hallCount;
   uint32_t dPulses = pulses - lastPulses;
   lastPulses = pulses;
-  float windKmh = (dPulses * 1000.0f / elapsedMs) * WIND_KMH_PER_HZ;
+ float windMs = (dPulses * 1000.0f / elapsedMs) * WIND_MS_PER_HZ;   // m/s
 
   // Alarm flags
   bool waterAlarm = waterPct >= WATER_ALARM_PCT;
@@ -313,7 +335,7 @@ void loop() {
   Serial.print(F(",\"rain\":"));  Serial.print(waterPct);
   Serial.print(F(",\"rainLvl\":\"")); Serial.print(RAIN_NAME[rainTrend]);
   Serial.print(F("\",\"rainMin\":")); Serial.print(rainMin);
-  Serial.print(F(",\"wind\":"));  Serial.print(windKmh, 1);
+Serial.print(F(",\"wind\":"));  Serial.print(windMs, 2);
   Serial.print(F(",\"wall\":"));  Serial.print(magnet ? 1 : 0);
   Serial.print(F(",\"src\":\"live\",\"alarms\":["));
   bool first = true;
